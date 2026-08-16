@@ -245,3 +245,15 @@ dist/
 
 # Remotion promo video project (source + renders kept out of the repo)
 promo/
+
+# ── runtime artifacts (regenerated every run; not source) ──
+monitor.log
+tv_active_chart.md
+tv_active_chart.json
+pine_out/
+.pytest_cache/
+
+# LLM credentials live in ~/.tradingview_mcp/, never in the repo — this is a
+# belt-and-braces guard in case anyone relocates the config here.
+llm_config.json
+.tradingview_mcp/

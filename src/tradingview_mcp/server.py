@@ -1030,7 +1030,133 @@ async def stock_prices(tickers: str) -> dict:
         return make_error(ErrorCode.UPSTREAM_ERROR, f"price lookup failed: {e}")
 
 
+@mcp.tool(annotations=ToolAnnotations(title="Get Active TradingView Chart Recommendation", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def get_active_chart_recommendation() -> dict:
+    """Detects the active TradingView chart open in the browser and returns a live trade recommendation.
+
+    This tool queries the Chrome/Edge remote debugging session on port 9222 to read
+    the active chart symbol, exchange, and timeframe, then runs a strategy backtest and
+    technical analysis to return a tailored trade setup.
+    """
+    import urllib.request
+    import json
+    import websockets
+    
+    # 1. Query /json to find active TV tab
+    try:
+        req = urllib.request.Request("http://127.0.0.1:9222/json")
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            ws_url = None
+            for item in data:
+                if 'tradingview.com' in item.get('url', ''):
+                    ws_url = item.get('webSocketDebuggerUrl')
+                    break
+            if not ws_url:
+                return {"error": "No active TradingView tab found in the browser. Make sure TradingView is open."}
+    except Exception as e:
+        return {"error": f"Failed to connect to local browser debugging port 9222: {e}. Ensure remote debugging is enabled."}
+
+    # 2. Query chart details via WebSocket
+    try:
+        async with websockets.connect(ws_url, close_timeout=5) as ws:
+            js_expr = """
+            (() => {
+                const results = {};
+                results.title = document.title;
+                results.href = window.location.href;
+                
+                const searchEl = document.getElementById('header-toolbar-symbol-search') || 
+                                 document.querySelector('[id*="symbol-search"]') || 
+                                 document.querySelector('[data-name*="symbol-search"]') ||
+                                 document.querySelector('[class*="symbol-search"]');
+                
+                results.symbol = searchEl ? searchEl.textContent.trim() : null;
+                
+                const exchangeEl = document.querySelector('[class*="exchangeTitle-"]');
+                results.exchange = exchangeEl ? exchangeEl.textContent.trim() : null;
+                
+                const intervalEl = document.querySelector('[class*="intervalTitle-"]');
+                results.interval = intervalEl ? intervalEl.textContent.trim() : "1D";
+                
+                return results;
+            })()
+            """
+            await ws.send(json.dumps({
+                "id": 1,
+                "method": "Runtime.evaluate",
+                "params": {"expression": js_expr, "returnByValue": True}
+            }))
+            
+            # Wait for response
+            eval_res = None
+            for _ in range(50):
+                msg = json.loads(await ws.recv())
+                if msg.get("id") == 1:
+                    eval_res = msg
+                    break
+            
+            if not eval_res or "result" not in eval_res or "result" not in eval_res["result"] or "value" not in eval_res["result"]["result"]:
+                return {"error": "Failed to read chart details from browser page."}
+            
+            value = eval_res["result"]["result"]["value"]
+
+            tv_symbol = value.get("symbol")
+            tv_exchange = value.get("exchange")
+            tv_interval = value.get("interval", "1D")
+            
+            if not tv_symbol:
+                return {"error": "Could not identify symbol from the active TradingView tab."}
+    except Exception as e:
+        return {"error": f"Failed to communicate with browser page via DevTools: {e}"}
+
+    # 3. Map to Yahoo Finance symbol
+    symbol = tv_symbol.strip()
+    yahoo_symbol = symbol
+    if "BANKNIFTY" in symbol:
+        yahoo_symbol = "^NSEBANK"
+    elif "NIFTY" in symbol:
+        yahoo_symbol = "^NSEI"
+    elif "SENSEX" in symbol:
+        yahoo_symbol = "^BSESN"
+    elif "BTC" in symbol:
+        yahoo_symbol = "BTC-USD"
+    elif "ETH" in symbol:
+        yahoo_symbol = "ETH-USD"
+    elif tv_exchange == "NSE":
+        if len(symbol) <= 15:
+            yahoo_symbol = f"{symbol}.NS"
+    elif tv_exchange == "BIST":
+        yahoo_symbol = f"{symbol}.IS"
+
+    # 4. Map interval
+    interval_map = {"1D": "1d", "1W": "1w", "1M": "1m", "1h": "1h", "4h": "1h", "15m": "1h", "5m": "1h"}
+    backtest_interval = interval_map.get(tv_interval, "1d")
+
+    # 5. Run strategy comparison
+    from tradingview_mcp.core.services.backtest_service import compare_strategies
+    try:
+        analysis = await asyncio.to_thread(
+            compare_strategies,
+            yahoo_symbol,
+            period="1y",
+            initial_capital=10000.0,
+            interval=backtest_interval
+        )
+    except Exception as e:
+        analysis = {"error": f"Could not compute backtest strategy for '{yahoo_symbol}': {e}"}
+
+    return {
+        "tv_symbol": tv_symbol,
+        "tv_exchange": tv_exchange,
+        "tv_interval": tv_interval,
+        "mapped_yahoo_symbol": yahoo_symbol,
+        "analysis": analysis
+    }
+
+
 # ── Resource ───────────────────────────────────────────────────────────────────
+
 
 @mcp.resource("exchanges://list")
 def exchanges_list() -> str:

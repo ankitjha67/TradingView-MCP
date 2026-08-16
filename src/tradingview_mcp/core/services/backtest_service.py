@@ -45,6 +45,9 @@ _STRATEGY_LABELS = {
     "rsi_pullback":     "RSI Pullback in Uptrend (SMA50>SMA200)",
     "keltner_breakout": "Keltner Channel Breakout (EMA20 + 2·ATR)",
     "triple_ema":       "EMA 20/50 Cross with SMA200 Trend Filter",
+    "turtle":           "Turtle Trading (Donchian 20/10 Breakout)",
+    "dual_thrust":      "Dual Thrust Breakout (Range-based)",
+    "rsi_stoch":        "RSI-Stochastic Mean Reversion Confluence",
 }
 
 # Strategies that require SMA200 warmup → need ≥220 bars to produce signals
@@ -97,144 +100,229 @@ def _fetch_ohlcv(symbol: str, period: str, interval: str = "1d") -> list[dict]:
 
 # ─── Strategy Engines ─────────────────────────────────────────────────────────
 
-def _run_rsi(candles, oversold=40, overbought=60, period=14, **_):
+def _run_rsi(candles, oversold=40, overbought=60, period=14, sl_atr=1.5, tp_atr=3.0, **_):
     closes = [c["close"] for c in candles]
+    highs  = [c["high"] for c in candles]
+    lows   = [c["low"] for c in candles]
     rsi    = calc_rsi(closes, period)
+    atr    = calc_atr(highs, lows, closes, 14)
     trades, position = [], None
     for i in range(1, len(candles)):
-        if rsi[i] is None:
+        if rsi[i] is None or atr[i] is None:
             continue
         price, date = candles[i]["close"], candles[i]["date"]
+        
+        if position is not None:
+            if candles[i]["low"] <= position["sl"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["sl"]})
+                position = None
+            elif candles[i]["high"] >= position["tp"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["tp"]})
+                position = None
+            elif rsi[i] > overbought:
+                trades.append({**position, "exit_date": date, "exit_price": price})
+                position = None
+
         if position is None and rsi[i] < oversold:
-            position = {"entry_date": date, "entry_price": price, "strategy": "rsi"}
-        elif position is not None and rsi[i] > overbought:
-            trades.append({**position, "exit_date": date, "exit_price": price})
-            position = None
+            sl = price - sl_atr * atr[i]
+            tp = price + tp_atr * atr[i]
+            position = {"entry_date": date, "entry_price": price, "strategy": "rsi", "sl": sl, "tp": tp}
+            
     return trades
 
 
-def _run_bollinger(candles, period=20, std_mult=2.0, **_):
+def _run_bollinger(candles, period=20, std_mult=2.0, sl_atr=1.5, tp_atr=3.0, **_):
     closes = [c["close"] for c in candles]
+    highs  = [c["high"] for c in candles]
+    lows   = [c["low"] for c in candles]
     bb     = calc_bollinger(closes, period, std_mult)
+    atr    = calc_atr(highs, lows, closes, 14)
     trades, position = [], None
     for i in range(1, len(candles)):
-        if bb["lower"][i] is None:
+        if bb["lower"][i] is None or atr[i] is None:
             continue
         price, date = candles[i]["close"], candles[i]["date"]
+        
+        if position is not None:
+            if candles[i]["low"] <= position["sl"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["sl"]})
+                position = None
+            elif candles[i]["high"] >= position["tp"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["tp"]})
+                position = None
+            elif price > bb["middle"][i]:
+                trades.append({**position, "exit_date": date, "exit_price": price})
+                position = None
+
         if position is None and price < bb["lower"][i]:
-            position = {"entry_date": date, "entry_price": price, "strategy": "bollinger"}
-        elif position is not None and price > bb["middle"][i]:
-            trades.append({**position, "exit_date": date, "exit_price": price})
-            position = None
+            sl = price - sl_atr * atr[i]
+            tp = price + tp_atr * atr[i]
+            position = {"entry_date": date, "entry_price": price, "strategy": "bollinger", "sl": sl, "tp": tp}
+            
     return trades
 
 
-def _run_macd(candles, fast=12, slow=26, signal=9, **_):
+def _run_macd(candles, fast=12, slow=26, signal=9, sl_atr=1.5, tp_atr=3.0, **_):
     closes = [c["close"] for c in candles]
+    highs  = [c["high"] for c in candles]
+    lows   = [c["low"] for c in candles]
     macd   = calc_macd(closes, fast, slow, signal)
+    atr    = calc_atr(highs, lows, closes, 14)
     trades, position = [], None
     for i in range(1, len(candles)):
         m, s, mp, sp = macd["macd"][i], macd["signal"][i], macd["macd"][i-1], macd["signal"][i-1]
-        if None in (m, s, mp, sp):
+        if None in (m, s, mp, sp) or atr[i] is None:
             continue
         price, date = candles[i]["close"], candles[i]["date"]
+        
+        if position is not None:
+            if candles[i]["low"] <= position["sl"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["sl"]})
+                position = None
+            elif candles[i]["high"] >= position["tp"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["tp"]})
+                position = None
+            elif mp > sp and m <= s:
+                trades.append({**position, "exit_date": date, "exit_price": price})
+                position = None
+
         if position is None and mp < sp and m >= s:
-            position = {"entry_date": date, "entry_price": price, "strategy": "macd"}
-        elif position is not None and mp > sp and m <= s:
-            trades.append({**position, "exit_date": date, "exit_price": price})
-            position = None
+            sl = price - sl_atr * atr[i]
+            tp = price + tp_atr * atr[i]
+            position = {"entry_date": date, "entry_price": price, "strategy": "macd", "sl": sl, "tp": tp}
+            
     return trades
 
 
-def _run_ema_cross(candles, fast_period=20, slow_period=50, **_):
+def _run_ema_cross(candles, fast_period=20, slow_period=50, sl_atr=2.0, **_):
     closes   = [c["close"] for c in candles]
+    highs  = [c["high"] for c in candles]
+    lows   = [c["low"] for c in candles]
     ema_fast = calc_ema(closes, fast_period)
     ema_slow = calc_ema(closes, slow_period)
+    atr      = calc_atr(highs, lows, closes, 14)
     trades, position = [], None
     for i in range(1, len(candles)):
         f, s, fp, sp = ema_fast[i], ema_slow[i], ema_fast[i-1], ema_slow[i-1]
-        if None in (f, s, fp, sp):
+        if None in (f, s, fp, sp) or atr[i] is None:
             continue
         price, date = candles[i]["close"], candles[i]["date"]
+        
+        if position is not None:
+            # Trailing stop
+            position["sl"] = max(position["sl"], price - sl_atr * atr[i])
+            if candles[i]["low"] <= position["sl"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["sl"]})
+                position = None
+            elif fp > sp and f <= s:
+                trades.append({**position, "exit_date": date, "exit_price": price})
+                position = None
+
         if position is None and fp < sp and f >= s:
-            position = {"entry_date": date, "entry_price": price, "strategy": "ema_cross"}
-        elif position is not None and fp > sp and f <= s:
-            trades.append({**position, "exit_date": date, "exit_price": price})
-            position = None
+            sl = price - sl_atr * atr[i]
+            position = {"entry_date": date, "entry_price": price, "strategy": "ema_cross", "sl": sl}
+            
     return trades
 
 
-def _run_supertrend(candles, atr_period=10, multiplier=3.0, **_):
+def _run_supertrend(candles, atr_period=10, multiplier=3.0, tp_atr=5.0, **_):
     highs  = [c["high"]  for c in candles]
     lows   = [c["low"]   for c in candles]
     closes = [c["close"] for c in candles]
     st     = calc_supertrend(highs, lows, closes, atr_period, multiplier)
+    atr    = calc_atr(highs, lows, closes, 14)
     trades, position = [], None
     for i in range(1, len(candles)):
         d, dp = st["direction"][i], st["direction"][i - 1]
-        if d is None or dp is None:
+        if d is None or dp is None or atr[i] is None:
             continue
         price, date = candles[i]["close"], candles[i]["date"]
+        
+        if position is not None:
+            # Trailing stop is native to Supertrend (lower band)
+            sl = st["lower"][i-1] if st["lower"][i-1] else st["lower"][i]
+            if candles[i]["low"] <= sl:
+                trades.append({**position, "exit_date": date, "exit_price": sl})
+                position = None
+            elif "tp" in position and candles[i]["high"] >= position["tp"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["tp"]})
+                position = None
+            elif dp == 1 and d == -1:
+                trades.append({**position, "exit_date": date, "exit_price": price})
+                position = None
+
         if position is None and dp == -1 and d == 1:
-            position = {"entry_date": date, "entry_price": price, "strategy": "supertrend"}
-        elif position is not None and dp == 1 and d == -1:
-            trades.append({**position, "exit_date": date, "exit_price": price})
-            position = None
+            tp = price + tp_atr * atr[i]
+            position = {"entry_date": date, "entry_price": price, "strategy": "supertrend", "tp": tp}
+            
     return trades
 
 
-def _run_donchian(candles, period=20, **_):
+def _run_donchian(candles, period=20, sl_atr=2.0, **_):
     highs  = [c["high"] for c in candles]
     lows   = [c["low"]  for c in candles]
+    closes = [c["close"] for c in candles]
     dc     = calc_donchian(highs, lows, period)
+    atr    = calc_atr(highs, lows, closes, 14)
     trades, position = [], None
     for i in range(1, len(candles)):
-        # Compare against the channel formed by the PRIOR window (index i-1).
-        # dc["upper"][i]/[i] include bar i itself, so highs[i] can never exceed
-        # dc["upper"][i] (a value can't beat a max that contains it) -> 0 trades.
-        if dc["upper"][i - 1] is None or dc["lower"][i - 1] is None:
+        if dc["upper"][i - 1] is None or dc["lower"][i - 1] is None or atr[i] is None:
             continue
         price, date = candles[i]["close"], candles[i]["date"]
+        
+        if position is not None:
+            # Trailing stop
+            position["sl"] = max(position["sl"], price - sl_atr * atr[i])
+            if candles[i]["low"] <= position["sl"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["sl"]})
+                position = None
+            elif lows[i] < dc["lower"][i - 1]:
+                trades.append({**position, "exit_date": date, "exit_price": price})
+                position = None
+
         if position is None and highs[i] > dc["upper"][i - 1]:
-            position = {"entry_date": date, "entry_price": price, "strategy": "donchian"}
-        elif position is not None and lows[i] < dc["lower"][i - 1]:
-            trades.append({**position, "exit_date": date, "exit_price": price})
-            position = None
+            sl = price - sl_atr * atr[i]
+            position = {"entry_date": date, "entry_price": price, "strategy": "donchian", "sl": sl}
+            
     return trades
 
 
 def _run_rsi_pullback(candles, rsi_period=14, oversold=40, overbought=70,
-                       fast_ma=50, slow_ma=200, **_):
-    """Dip-buy in confirmed uptrend.
-
-    Entry: SMA(fast_ma) > SMA(slow_ma)  AND  RSI < oversold
-    Exit:  RSI > overbought              OR   close < SMA(fast_ma)
-    """
+                       fast_ma=50, slow_ma=200, sl_atr=1.5, tp_atr=3.0, **_):
     closes   = [c["close"] for c in candles]
+    highs    = [c["high"] for c in candles]
+    lows     = [c["low"] for c in candles]
     rsi      = calc_rsi(closes, rsi_period)
     sma_fast = calc_sma(closes, fast_ma)
     sma_slow = calc_sma(closes, slow_ma)
+    atr      = calc_atr(highs, lows, closes, 14)
     trades, position = [], None
     for i in range(1, len(candles)):
-        if rsi[i] is None or sma_fast[i] is None or sma_slow[i] is None:
+        if rsi[i] is None or sma_fast[i] is None or sma_slow[i] is None or atr[i] is None:
             continue
         price, date = candles[i]["close"], candles[i]["date"]
+        
+        if position is not None:
+            if candles[i]["low"] <= position["sl"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["sl"]})
+                position = None
+            elif candles[i]["high"] >= position["tp"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["tp"]})
+                position = None
+            elif (rsi[i] > overbought or price < sma_fast[i]):
+                trades.append({**position, "exit_date": date, "exit_price": price})
+                position = None
+                
         in_uptrend  = sma_fast[i] > sma_slow[i]
         if position is None and in_uptrend and rsi[i] < oversold:
-            position = {"entry_date": date, "entry_price": price, "strategy": "rsi_pullback"}
-        elif position is not None and (rsi[i] > overbought or price < sma_fast[i]):
-            trades.append({**position, "exit_date": date, "exit_price": price})
-            position = None
+            sl = price - sl_atr * atr[i]
+            tp = price + tp_atr * atr[i]
+            position = {"entry_date": date, "entry_price": price, "strategy": "rsi_pullback", "sl": sl, "tp": tp}
+            
     return trades
 
 
-def _run_keltner_breakout(candles, ema_period=20, atr_period=14, multiplier=2.0, **_):
-    """ATR-normalized breakout (volatility-aware Donchian alternative).
-
-    Upper = EMA(20) + multiplier · ATR(14)
-    Entry: close > upper
-    Exit:  close < EMA(20)
-    """
+def _run_keltner_breakout(candles, ema_period=20, atr_period=14, multiplier=2.0, sl_atr=2.0, **_):
     highs  = [c["high"]  for c in candles]
     lows   = [c["low"]   for c in candles]
     closes = [c["close"] for c in candles]
@@ -246,41 +334,226 @@ def _run_keltner_breakout(candles, ema_period=20, atr_period=14, multiplier=2.0,
             continue
         price, date = candles[i]["close"], candles[i]["date"]
         upper       = ema[i] + multiplier * atr[i]
+        
+        if position is not None:
+            # Trailing stop
+            position["sl"] = max(position["sl"], price - sl_atr * atr[i])
+            if candles[i]["low"] <= position["sl"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["sl"]})
+                position = None
+            elif price < ema[i]:
+                trades.append({**position, "exit_date": date, "exit_price": price})
+                position = None
+
         if position is None and price > upper:
-            position = {"entry_date": date, "entry_price": price, "strategy": "keltner_breakout"}
-        elif position is not None and price < ema[i]:
-            trades.append({**position, "exit_date": date, "exit_price": price})
-            position = None
+            sl = price - sl_atr * atr[i]
+            position = {"entry_date": date, "entry_price": price, "strategy": "keltner_breakout", "sl": sl}
+            
     return trades
 
 
-def _run_triple_ema(candles, fast_period=20, slow_period=50, trend_period=200, **_):
-    """EMA 20/50 cross gated by long-term trend filter.
-
-    Entry: EMA(20) crosses ABOVE EMA(50)  AND  close > SMA(200)
-    Exit:  EMA(20) crosses BELOW EMA(50)
-    """
+def _run_triple_ema(candles, fast_period=20, slow_period=50, trend_period=200, sl_atr=2.0, **_):
     closes    = [c["close"] for c in candles]
+    highs     = [c["high"] for c in candles]
+    lows      = [c["low"] for c in candles]
     ema_fast  = calc_ema(closes, fast_period)
     ema_slow  = calc_ema(closes, slow_period)
     sma_trend = calc_sma(closes, trend_period)
+    atr       = calc_atr(highs, lows, closes, 14)
     trades, position = [], None
     for i in range(1, len(candles)):
         f, s, fp, sp, t = ema_fast[i], ema_slow[i], ema_fast[i-1], ema_slow[i-1], sma_trend[i]
-        if None in (f, s, fp, sp, t):
+        if None in (f, s, fp, sp, t) or atr[i] is None:
             continue
         price, date = candles[i]["close"], candles[i]["date"]
+        
+        if position is not None:
+            # Trailing stop
+            position["sl"] = max(position["sl"], price - sl_atr * atr[i])
+            if candles[i]["low"] <= position["sl"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["sl"]})
+                position = None
+            elif fp > sp and f <= s:
+                trades.append({**position, "exit_date": date, "exit_price": price})
+                position = None
+
         bull_cross  = fp < sp and f >= s
-        bear_cross  = fp > sp and f <= s
         if position is None and bull_cross and price > t:
-            position = {"entry_date": date, "entry_price": price, "strategy": "triple_ema"}
-        elif position is not None and bear_cross:
-            trades.append({**position, "exit_date": date, "exit_price": price})
-            position = None
+            sl = price - sl_atr * atr[i]
+            position = {"entry_date": date, "entry_price": price, "strategy": "triple_ema", "sl": sl}
+            
     return trades
 
 
+def _run_turtle(candles, entry_period=20, exit_period=10, sl_atr=2.0, **_):
+    highs = [c["high"] for c in candles]
+    lows  = [c["low"]  for c in candles]
+    closes = [c["close"] for c in candles]
+    dc_entry = calc_donchian(highs, lows, entry_period)
+    dc_exit  = calc_donchian(highs, lows, exit_period)
+    atr      = calc_atr(highs, lows, closes, 20)
+    trades, position = [], None
+    for i in range(1, len(candles)):
+        if dc_entry["upper"][i - 1] is None or dc_exit["lower"][i - 1] is None or atr[i-1] is None:
+            continue
+        price, date = candles[i]["close"], candles[i]["date"]
+        
+        if position is not None:
+            if candles[i]["low"] <= position["sl"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["sl"]})
+                position = None
+            elif lows[i] < dc_exit["lower"][i - 1]:
+                trades.append({**position, "exit_date": date, "exit_price": price})
+                position = None
+
+        if position is None and highs[i] > dc_entry["upper"][i - 1]:
+            sl = price - sl_atr * atr[i-1]
+            position = {"entry_date": date, "entry_price": price, "strategy": "turtle", "sl": sl}
+            
+    return trades
+
+
+def _run_dual_thrust(candles, period=4, k1=0.5, k2=0.5, sl_pct=0.02, **_):
+    highs  = [c["high"]  for c in candles]
+    lows   = [c["low"]   for c in candles]
+    closes = [c["close"] for c in candles]
+    opens  = [c["open"]  for c in candles]
+    ema20 = calc_ema(closes, 20)
+    
+    trades, position = [], None
+    for i in range(period, len(candles)):
+        window_highs  = highs[i - period : i]
+        window_lows   = lows[i - period : i]
+        window_closes = closes[i - period : i]
+        
+        hh = max(window_highs)
+        lc = min(window_closes)
+        hc = max(window_closes)
+        ll = min(window_lows)
+        
+        range_val = max(hh - lc, hc - ll)
+        buy_line = opens[i] + k1 * range_val
+        
+        price, date = closes[i], candles[i]["date"]
+        
+        if position is not None:
+            if candles[i]["low"] <= position["sl"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["sl"]})
+                position = None
+            elif ema20[i] is not None and price < ema20[i]:
+                trades.append({**position, "exit_date": date, "exit_price": price})
+                position = None
+
+        if position is None and price > buy_line:
+            sl = price * (1 - sl_pct)
+            position = {"entry_date": date, "entry_price": price, "strategy": "dual_thrust", "sl": sl}
+            
+    return trades
+
+
+def _run_rsi_stoch(candles, rsi_period=14, stoch_period=14, stoch_smooth=3, rsi_oversold=35, rsi_overbought=65, stoch_oversold=20, stoch_overbought=80, sl_atr=1.5, tp_atr=3.0, **_):
+    closes = [c["close"] for c in candles]
+    highs  = [c["high"]  for c in candles]
+    lows   = [c["low"]   for c in candles]
+    
+    rsi = calc_rsi(closes, rsi_period)
+    atr = calc_atr(highs, lows, closes, 14)
+    
+    fast_k = [None] * len(candles)
+    for i in range(stoch_period - 1, len(candles)):
+        h_val = max(highs[i - stoch_period + 1 : i + 1])
+        l_val = min(lows[i - stoch_period + 1 : i + 1])
+        diff = h_val - l_val
+        fast_k[i] = 50.0 if diff == 0 else (closes[i] - l_val) / diff * 100.0
+        
+    stoch_k = [None] * len(candles)
+    for i in range(stoch_period - 1 + stoch_smooth - 1, len(candles)):
+        vals = [fast_k[j] for j in range(i - stoch_smooth + 1, i + 1) if fast_k[j] is not None]
+        if len(vals) == stoch_smooth:
+            stoch_k[i] = sum(vals) / stoch_smooth
+            
+    trades, position = [], None
+    for i in range(1, len(candles)):
+        if rsi[i] is None or stoch_k[i] is None or atr[i] is None:
+            continue
+        price, date = closes[i], candles[i]["date"]
+        
+        if position is not None:
+            if candles[i]["low"] <= position["sl"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["sl"]})
+                position = None
+            elif candles[i]["high"] >= position["tp"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["tp"]})
+                position = None
+            elif (rsi[i] > rsi_overbought or stoch_k[i] > stoch_overbought):
+                trades.append({**position, "exit_date": date, "exit_price": price})
+                position = None
+
+        if position is None and rsi[i] < rsi_oversold and stoch_k[i] < stoch_oversold:
+            sl = price - sl_atr * atr[i]
+            tp = price + tp_atr * atr[i]
+            position = {"entry_date": date, "entry_price": price, "strategy": "rsi_stoch", "sl": sl, "tp": tp}
+            
+    return trades
+
+
+import pandas as pd
+
+# Canonical import path. This previously read `from src.tradingview_mcp...`, which made
+# Python load the whole package tree a second time under a different name — two copies of
+# every strategy class, and `issubclass` failing between them. See CONTEXT.md §3.3.
+from tradingview_mcp.core.quant.registry import get_registry
+
+# The v2 engine. The former `strategies/` package held 170 clones generated from a single
+# template (two distinct behaviours in total), which made any consensus over it meaningless.
+_DYNAMIC_STRATEGIES = get_registry().all()
+
+def _run_dynamic_strategy(candles, strategy_obj):
+    """Generic backtest loop for 200+ strategies"""
+    df = pd.DataFrame(candles)
+    if 'date' in df:
+        df['date'] = pd.to_datetime(df['date'])
+    trades = []
+    position = None
+    
+    # We simulate walking forward
+    # This is slightly slower but perfectly simulates the 200 strategies
+    for i in range(10, len(df)):
+        sub_df = df.iloc[:i+1]
+        signal = strategy_obj.evaluate(sub_df)
+        price = df['close'].iloc[i]
+        date = df['date'].iloc[i].strftime("%Y-%m-%d %H:%M") if hasattr(df['date'].iloc[i], 'strftime') else df['date'].iloc[i]
+        
+        # Simple exit logic (3% TP, 1.5% SL for simplicity across 200 strats)
+        if position is not None:
+            if df['low'].iloc[i] <= position["sl"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["sl"]})
+                position = None
+            elif df['high'].iloc[i] >= position["tp"]:
+                trades.append({**position, "exit_date": date, "exit_price": position["tp"]})
+                position = None
+            elif ("BUY" in signal and position['type'] == 'SHORT') or ("SELL" in signal and position['type'] == 'LONG'):
+                trades.append({**position, "exit_date": date, "exit_price": price})
+                position = None
+                
+        if position is None:
+            if "BUY" in signal:
+                sl = price * (1 - 0.015)
+                tp = price * (1 + 0.03)
+                position = {"entry_date": date, "entry_price": price, "strategy": strategy_obj.name, "sl": sl, "tp": tp, "type": "LONG"}
+            elif "SELL" in signal:
+                sl = price * (1 + 0.015)
+                tp = price * (1 - 0.03)
+                position = {"entry_date": date, "entry_price": price, "strategy": strategy_obj.name, "sl": sl, "tp": tp, "type": "SHORT"}
+                
+    return trades
+
 _STRATEGY_MAP = {
+    strat.name: (lambda c, s=strat: _run_dynamic_strategy(c, s)) for strat in _DYNAMIC_STRATEGIES
+}
+
+# Combine with old strategies for backwards compatibility
+old_map = {
     "rsi":              _run_rsi,
     "bollinger":        _run_bollinger,
     "macd":             _run_macd,
@@ -290,7 +563,28 @@ _STRATEGY_MAP = {
     "rsi_pullback":     _run_rsi_pullback,
     "keltner_breakout": _run_keltner_breakout,
     "triple_ema":       _run_triple_ema,
+    "turtle":           _run_turtle,
+    "dual_thrust":      _run_dual_thrust,
+    "rsi_stoch":        _run_rsi_stoch,
 }
+_STRATEGY_MAP.update(old_map)
+
+_STRATEGY_LABELS = {strat.name: f"[{strat.category}] {strat.name}" for strat in _DYNAMIC_STRATEGIES}
+old_labels = {
+    "rsi":              "RSI Oversold/Overbought",
+    "bollinger":        "Bollinger Band Mean Reversion",
+    "macd":             "MACD Crossover",
+    "ema_cross":        "EMA 20/50 Golden/Death Cross",
+    "supertrend":       "Supertrend (ATR-based Trend Following)",
+    "donchian":         "Donchian Channel Breakout",
+    "rsi_pullback":     "RSI Pullback in Uptrend (SMA50>SMA200)",
+    "keltner_breakout": "Keltner Channel Breakout (EMA20 + 2·ATR)",
+    "triple_ema":       "EMA 20/50 Cross with SMA200 Trend Filter",
+    "turtle":           "Turtle Trading (Donchian 20/10 Breakout)",
+    "dual_thrust":      "Dual Thrust Breakout (Range-based)",
+    "rsi_stoch":        "RSI-Stochastic Mean Reversion Confluence",
+}
+_STRATEGY_LABELS.update(old_labels)
 
 
 # ─── Transaction Costs ────────────────────────────────────────────────────────

@@ -29,16 +29,24 @@ dependencies = [
   # imports, so an open range breaks every fresh install (and any Docker rebuild —
   # `uv pip install --system .` ignores uv.lock). Moving to the 2.x SDK
   # (FastMCP -> MCPServer) is a deliberate migration, not a drive-by resolve.
+  "litellm>=1.97.0",
   "mcp[cli]>=1.14.0,<2",
+  "numba>=0.67.0",
+  "pandas>=2.3.1",
+  "plotly>=6.9.0",
   "requests>=2.32",
   # Pinned to ==3.0.0 on purpose. 3.2.0 makes a bare Query() default to a
   # *stock* preset filter that silently returns 0 rows for crypto/futures
   # scans, which would break coin/screener/futures tools. The Docker build uses
   # `uv pip install --system .` (ignores uv.lock), so an open range would let a
   # rebuild drift to 3.2.0 and break paid traffic. See futures_service._futures_query.
+  "scipy>=1.15.3",
+  "streamlit>=1.61.1",
   "tradingview-screener==3.0.0",
   "tradingview-ta>=3.3.0",
+  "websockets>=12.0",
 ]
+
 
 [project.scripts]
 # Entry point now points to packaged module
