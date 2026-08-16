@@ -53,6 +53,11 @@ WATCH_POLL_SECONDS = 2.0
 # promptly, slow enough not to hammer the provider through a weekend.
 STALE_RECHECK_SECONDS = 600.0
 
+# Retry pacing after a failed cycle. Doubles per consecutive failure so an
+# unresolvable symbol settles into an occasional retry rather than a tight loop.
+FAILURE_BACKOFF_BASE = 30.0
+FAILURE_BACKOFF_MAX = 900.0
+
 
 def ensure_utf8_console() -> None:
     """
@@ -651,6 +656,7 @@ def run_monitor(cfg: Optional[MonitorConfig] = None,
     last_key: Optional[tuple] = None
     next_run_at = 0.0
     cycles = 0
+    consecutive_failures = 0
 
     if manual:
         _log(f"Manual mode: {cfg.symbol} @ {normalize_interval(cfg.interval or '1d')} "
@@ -668,9 +674,13 @@ def run_monitor(cfg: Optional[MonitorConfig] = None,
     while max_cycles is None or cycles < max_cycles:
         try:
             if manual:
-                state = ChartState(symbol=cfg.symbol,
+                # `--symbol NSE:RELIANCE` carries its exchange in the string;
+                # parse_symbol recovers it. A bare `--symbol RELIANCE` genuinely has
+                # none, and the resulting failure names the fix.
+                _spec = parse_symbol(cfg.symbol)
+                state = ChartState(symbol=_spec.ticker or cfg.symbol,
                                    interval=normalize_interval(cfg.interval or "1d"),
-                                   exchange=parse_symbol(cfg.symbol).exchange,
+                                   exchange=_spec.exchange,
                                    detected_at=time.time())
             else:
                 state = read_chart_from_browser()
@@ -688,11 +698,12 @@ def run_monitor(cfg: Optional[MonitorConfig] = None,
                 time.sleep(WATCH_POLL_SECONDS)
                 continue
 
+            label = f"{state.exchange}:{state.symbol}" if state.exchange else state.symbol
             trigger = "chart changed" if changed else "bar close"
             if changed:
                 spec = parse_symbol(state.symbol, state.exchange)
                 resolved = spec.yahoo or spec.binance or "unresolved"
-                _log(f"Chart: {state.exchange}:{state.symbol} @ {state.interval} "
+                _log(f"Chart: {label} @ {state.interval} "
                      f"→ {resolved} ({spec.asset_class})")
 
             t0 = time.time()
@@ -703,12 +714,23 @@ def run_monitor(cfg: Optional[MonitorConfig] = None,
                 # successful report on disk would present a stale reading for a
                 # symbol the user is no longer looking at.
                 paths = write_error_report(state, exc, cfg)
-                _log(f"FAILED {state.exchange}:{state.symbol} @ {state.interval} — "
+                consecutive_failures += 1
+                # Escalating backoff. A symbol that cannot be resolved fails on every
+                # attempt, and a fixed short retry would hammer the providers forever.
+                backoff = min(FAILURE_BACKOFF_MAX,
+                              FAILURE_BACKOFF_BASE * (2 ** (consecutive_failures - 1)))
+                _log(f"FAILED {label} @ {state.interval} — "
                      f"{type(exc).__name__}: {str(exc)[:120]}")
+                if consecutive_failures > 1:
+                    _log(f"  failure {consecutive_failures} in a row; retrying in {backoff:.0f}s")
                 for p in paths:
                     _log(f"  wrote {p.name} (error report)")
                 last_key = state.key()
-                next_run_at = time.time() + max(30, cfg.min_seconds_between_runs)
+                next_run_at = time.time() + backoff
+                # A failed cycle is still a cycle. Without this, `continue` skipped the
+                # counter below and max_cycles never terminated a run whose symbol was
+                # permanently unresolvable — a bounded run became an infinite loop.
+                cycles += 1
                 time.sleep(WATCH_POLL_SECONDS)
                 continue
             elapsed = time.time() - t0
@@ -741,6 +763,7 @@ def run_monitor(cfg: Optional[MonitorConfig] = None,
             next_run_at = time.time() + wait
             last_key = state.key()
 
+            consecutive_failures = 0
             paths = write_outputs(snap, cfg)
             c, cf = snap.consensus, snap.confidence
             pos = (snap.trade_plan or {}).get("position", {})
