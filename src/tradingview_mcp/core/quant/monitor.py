@@ -48,6 +48,11 @@ from .sizing import CapitalConfig, build_trade_plan
 CDP_ENDPOINT = "http://127.0.0.1:9222/json"
 WATCH_POLL_SECONDS = 2.0
 
+# While the feed is stale (closed market, halted symbol), re-check on this cycle
+# instead of the interval's own cadence. Frequent enough to catch the reopen
+# promptly, slow enough not to hammer the provider through a weekend.
+STALE_RECHECK_SECONDS = 600.0
+
 
 def ensure_utf8_console() -> None:
     """
@@ -719,12 +724,16 @@ def run_monitor(cfg: Optional[MonitorConfig] = None,
             floor = min(cfg.min_seconds_between_runs, bar_seconds)
             wait = max(seconds_to_next_close(state.interval), floor)
 
-            # If the feed is not producing new bars there is nothing to re-analyse.
-            # Back off rather than recomputing an unchanged bar every minute — over
-            # a weekend that would be ~2,800 identical "live" readings.
+            # Stale feed: the point is to notice when data starts flowing again.
+            #
+            # This was `max(wait, 300)`, which is backwards for slow intervals — on a
+            # daily chart `seconds_to_next_close` is 86400, so max(86400, 300) left the
+            # monitor scheduled 24 hours out and blind to the market reopening. The
+            # correct behaviour is a CAP: while stale, re-check on a fixed short cycle
+            # so the first fresh bar is picked up within minutes of the open.
             fresh = snap.freshness or {}
             if fresh.get("stale"):
-                wait = max(wait, 300.0)
+                wait = min(wait, STALE_RECHECK_SECONDS)
 
             if cfg.force_interval_seconds:
                 wait = float(cfg.force_interval_seconds)

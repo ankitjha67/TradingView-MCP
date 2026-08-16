@@ -63,14 +63,33 @@ Non-technical walkthrough: **[EASY_SETUP_GUIDE.md](EASY_SETUP_GUIDE.md)**
 
 ## Interfaces
 
-| Interface | Command |
-|---|---|
-| Streamlit dashboard | `python start.py` |
-| Live monitor | `python -m tradingview_mcp.core.quant.monitor --capital 50000` |
-| Universe scan | `python tools/scan_universe.py --capital 50000 --risk 1.0` |
-| Pine export | `python tools/emit_pine.py --symbol AAPL --interval 1d` |
-| Verify Pine | `python tools/verify_pine.py --symbol SPY --bars 2500` |
-| MCP server | auto-configured into detected IDEs |
+**The monitor follows your chart. Nothing else.** It analyses the symbol and interval you
+have open and reports on that instrument — if the reading is neutral, "stand aside" is the
+answer, not a prompt to go looking elsewhere.
+
+Scanning a wider universe is a **separate, explicitly-invoked tool**
+(`tools/scan_universe.py`). It is never run as part of monitoring.
+
+| Interface | Command | Scope |
+|---|---|---|
+| **Live monitor** | `./run_monitor.sh` · `run_monitor.bat` | your open chart only |
+| Streamlit dashboard | `python start.py` | one symbol at a time |
+| Universe scan | `python tools/scan_universe.py --capital 50000` | 51 instruments, opt-in |
+| Pine export | `python tools/emit_pine.py --symbol AAPL --interval 1d` | one symbol |
+| Verify Pine | `python tools/verify_pine.py --symbol SPY --bars 2500` | all 174 translations |
+| MCP server | auto-configured into detected IDEs | on request |
+
+### Keeping the monitor alive
+
+`run_monitor.sh` (macOS/Linux) and `run_monitor.bat` (Windows) set `PYTHONPATH` and run the
+monitor detached from the shell that launched it. Both accept the same flags:
+
+```bash
+./run_monitor.sh --capital 50000 --currency INR --risk 1.0
+```
+
+It rewrites `tv_active_chart.md` and `tv_active_chart.json` at every bar close, and follows
+you automatically when you switch symbol or interval.
 
 ## Monitoring cadence
 
@@ -81,6 +100,10 @@ backed off rather than re-reported as live.
 
 Models read the last *closed* bar; re-running mid-bar re-reads a forming candle, so the
 signal flickers then settles. One stable reading per bar is what you act on.
+
+When the feed goes stale — weekend, closed market, halted symbol — the monitor says so and
+switches to a fixed 10-minute re-check so it picks up the reopen promptly, rather than
+sitting on the interval's own cadence and going blind for a full day.
 
 ## Data
 
