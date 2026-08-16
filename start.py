@@ -236,15 +236,54 @@ def setup_ides() -> bool:
 
 # ── launch ────────────────────────────────────────────────────────────────────
 
+def port_is_busy(port: int) -> bool:
+    """True if anything is already serving on `port`.
+
+    This connects rather than binds. A bind probe lies in two ways on Windows:
+    SO_REUSEADDR lets it succeed on a port that is already listening, and a
+    server bound to the IPv6 wildcard is invisible to an IPv4-only bind. Both
+    produce a "free" verdict for a port that then rejects Streamlit. Trying to
+    connect over both families answers the question that actually matters.
+    """
+    import socket
+    for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as s:
+                s.settimeout(0.25)
+                if s.connect_ex((host, port)) == 0:
+                    return True
+        except OSError:
+            continue          # family unavailable on this host
+    return False
+
+
+def free_port(start: int = 8501, tries: int = 40) -> int:
+    """First port from `start` that nothing is serving on.
+
+    Streamlit does not fall back when its port is taken — it exits with "Port
+    is already in use", which reads to the user as the dashboard simply never
+    appearing. Choosing the port ourselves means another app on 8501 costs
+    them nothing.
+    """
+    for port in range(start, start + tries):
+        if not port_is_busy(port):
+            return port
+    return start
+
+
 def launch_dashboard() -> int:
     header("Dashboard")
-    say("Starting Streamlit — your browser will open at http://localhost:8501")
+    port = free_port()
+    if port != 8501:
+        say(f"Port 8501 is busy — using {port} instead.", "info")
+    say(f"Starting Streamlit — your browser will open at http://localhost:{port}")
     say("Press Ctrl+C here to stop.", "info")
     print()
     env = {**os.environ, "PYTHONPATH": str(SRC), "PYTHONIOENCODING": "utf-8"}
     try:
         return subprocess.call([sys.executable, "-m", "streamlit", "run",
                                 str(ROOT / "dashboard.py"),
+                                f"--server.port={port}",
                                 "--server.headless=false",
                                 "--browser.gatherUsageStats=false"], env=env)
     except KeyboardInterrupt:

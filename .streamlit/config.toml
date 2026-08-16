@@ -1,0 +1,31 @@
+# Streamlit theme.
+#
+# This file is why the charts match the page. Streamlit renders line/bar/area
+# charts through Vega-Lite, which takes its palette from the *Streamlit* theme,
+# not from any CSS injected with st.markdown. Without this the app chrome went
+# dark while every chart stayed on a white canvas.
+
+[theme]
+base = "dark"
+
+primaryColor = "#5b8def"           # accent — buttons, sliders, focus rings
+backgroundColor = "#0c1017"        # main canvas, matches --bg in dashboard.py
+secondaryBackgroundColor = "#141a24"  # sidebar, cards, table headers
+textColor = "#e8edf5"
+font = "sans serif"
+
+[server]
+headless = false
+# No port pinned on purpose. Streamlit exits rather than falling back when the
+# configured port is taken, which reads as "the dashboard never opened".
+# start.py probes for a free port from 8501 up and passes --server.port.
+# Reload on save while iterating on the dashboard.
+fileWatcherType = "auto"
+
+[browser]
+gatherUsageStats = false
+
+[client]
+# Errors belong on screen, not only in the terminal the user may not be watching.
+showErrorDetails = true
+toolbarMode = "minimal"

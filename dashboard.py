@@ -18,6 +18,7 @@ import sys
 import time
 from pathlib import Path
 
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -56,11 +57,23 @@ st.markdown("""
 <style>
   :root {
     --bg:#0c1017; --panel:#141a24; --line:#232b38; --ink:#e8edf5;
-    --muted:#8b97ab; --long:#22c55e; --short:#ef4444; --flat:#94a3b8; --accent:#5b8def;
+    --muted:#9aa7bd; --long:#22c55e; --short:#ef4444; --flat:#94a3b8; --accent:#5b8def;
   }
   .stApp { background: var(--bg); color: var(--ink); }
-  section[data-testid="stSidebar"] { background: var(--panel); border-right:1px solid var(--line); }
-  h1,h2,h3 { color: var(--ink); font-weight:650; letter-spacing:-0.01em; }
+
+  /* Streamlit renders the sidebar and main pane in their own containers; without
+     these the panel colour stops at the app shell and leaves white gutters. */
+  section[data-testid="stSidebar"] > div { background: var(--panel); }
+  section[data-testid="stSidebar"] { border-right:1px solid var(--line); }
+  [data-testid="stAppViewContainer"], [data-testid="stHeader"] { background: var(--bg); }
+  [data-testid="stVerticalBlock"] { gap: 0.75rem; }
+
+  h1,h2,h3,h4 { color: var(--ink); font-weight:650; letter-spacing:-0.01em; }
+  /* Captions defaulted to a grey that failed contrast on this background. */
+  .stCaption, [data-testid="stCaptionContainer"], small { color: var(--muted) !important; }
+  section[data-testid="stSidebar"] label,
+  section[data-testid="stSidebar"] .stMarkdown p { color: var(--ink); }
+
   .card { background: var(--panel); border:1px solid var(--line); border-radius:12px;
           padding:16px 18px; height:100%; }
   .card-label { font-size:.7rem; text-transform:uppercase; letter-spacing:.09em;
@@ -76,8 +89,16 @@ st.markdown("""
   .bar > span { display:block; height:100%; }
   .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:.7rem;
           border:1px solid var(--line); color:var(--muted); margin-right:5px; }
-  .stTabs [data-baseweb="tab"] { font-size:.9rem; }
-  code { color:#9ec5ff; }
+
+  /* Inputs and tables ship light by default and stood out badly against the panel. */
+  .stTextInput input, .stNumberInput input, .stSelectbox div[data-baseweb="select"] > div {
+      background: #0f1520 !important; color: var(--ink) !important;
+      border-color: var(--line) !important; }
+  [data-testid="stDataFrame"], [data-testid="stTable"] { background: var(--panel); }
+  .stTabs [data-baseweb="tab"] { font-size:.9rem; color: var(--muted); }
+  .stTabs [aria-selected="true"] { color: var(--ink); }
+  .stExpander { border:1px solid var(--line) !important; border-radius:10px; background: var(--panel); }
+  code { color:#9ec5ff; background:#0f1520; padding:1px 5px; border-radius:4px; }
   .note { font-size:.8rem; color:var(--muted); border-left:2px solid var(--line);
           padding-left:10px; margin:8px 0; }
 </style>
@@ -89,6 +110,105 @@ def card(label: str, value: str, sub: str = "", color: str = "") -> str:
     return (f'<div class="card"><div class="card-label">{label}</div>'
             f'<div class="card-value"{style}>{value}</div>'
             f'<div class="card-sub">{sub}</div></div>')
+
+
+
+# ── charts ────────────────────────────────────────────────────────────────────
+# Built with Altair rather than st.line_chart so three things can be controlled
+# that the shorthand cannot: y-axis scaling, label orientation, and colour.
+
+CHART_BG = "#141a24"
+GRID = "#232b38"
+INK = "#e8edf5"
+MUTED = "#8b97ab"
+
+
+def _theme(chart: alt.Chart, height: int) -> alt.Chart:
+    return (chart
+            .properties(height=height, background=CHART_BG)
+            .configure_view(strokeWidth=0)
+            .configure_axis(gridColor=GRID, domainColor=GRID, tickColor=GRID,
+                            labelColor=MUTED, titleColor=MUTED, labelFontSize=11)
+            .configure_legend(labelColor=INK, titleColor=MUTED, orient="top",
+                              direction="horizontal"))
+
+
+def price_chart(df: pd.DataFrame, height: int = 300) -> alt.Chart:
+    """
+    Price with EMAs, y-axis fitted to the data.
+
+    `zero=False` is the point: a default axis anchored at 0 renders BTC at 63,000
+    as a flat line across the top of an empty plot.
+    """
+    d = df.reset_index()
+    d.columns = ["t"] + list(d.columns[1:])
+    long = d.melt("t", value_vars=[c for c in d.columns if c != "t"],
+                  var_name="series", value_name="value").dropna()
+    lo, hi = float(long["value"].min()), float(long["value"].max())
+    pad = (hi - lo) * 0.06 or hi * 0.01
+    return _theme(
+        alt.Chart(long).mark_line(strokeWidth=1.6).encode(
+            x=alt.X("t:T", title=None),
+            y=alt.Y("value:Q", title=None,
+                    scale=alt.Scale(domain=[lo - pad, hi + pad], zero=False, nice=False)),
+            color=alt.Color("series:N", title=None,
+                            scale=alt.Scale(range=["#e8edf5", "#5b8def", "#f59e0b"])),
+            tooltip=[alt.Tooltip("t:T", title="time"), "series:N",
+                     alt.Tooltip("value:Q", format=",.4f")]),
+        height)
+
+
+def category_chart(rows: list[dict], height: int = 300) -> alt.Chart:
+    """
+    Category scores as horizontal bars.
+
+    Vertical bars force 16 long category names into rotated, overlapping labels;
+    horizontal bars give each one a full readable row.
+    """
+    d = pd.DataFrame(rows)
+    return _theme(
+        alt.Chart(d).mark_bar().encode(
+            y=alt.Y("category:N", sort="-x", title=None),
+            x=alt.X("score:Q", title="consensus score",
+                    scale=alt.Scale(domain=[-1, 1])),
+            color=alt.condition(alt.datum.score > 0,
+                                alt.value("#22c55e"), alt.value("#ef4444")),
+            tooltip=["category:N", alt.Tooltip("score:Q", format="+.3f"),
+                     alt.Tooltip("buy:Q", title="long"),
+                     alt.Tooltip("sell:Q", title="short"),
+                     alt.Tooltip("available:Q", title="models available")]),
+        height)
+
+
+def equity_chart(equity: pd.Series, height: int = 240) -> alt.Chart:
+    """Equity against its running peak, so drawdowns read at a glance."""
+    d = pd.DataFrame({"t": equity.index, "Equity": equity.to_numpy(),
+                      "Peak": equity.cummax().to_numpy()})
+    long = d.melt("t", var_name="series", value_name="value")
+    lo, hi = float(long["value"].min()), float(long["value"].max())
+    pad = (hi - lo) * 0.05 or 0.01
+    return _theme(
+        alt.Chart(long).mark_line(strokeWidth=1.6).encode(
+            x=alt.X("t:T", title=None),
+            y=alt.Y("value:Q", title=None,
+                    scale=alt.Scale(domain=[lo - pad, hi + pad], zero=False, nice=False)),
+            color=alt.Color("series:N", title=None,
+                            scale=alt.Scale(range=["#5b8def", "#4b5563"])),
+            tooltip=[alt.Tooltip("t:T", title="time"), "series:N",
+                     alt.Tooltip("value:Q", format=",.4f")]),
+        height)
+
+
+def drawdown_chart(equity: pd.Series, height: int = 150) -> alt.Chart:
+    dd = (equity / equity.cummax() - 1) * 100
+    d = pd.DataFrame({"t": dd.index, "drawdown": dd.to_numpy()})
+    return _theme(
+        alt.Chart(d).mark_area(color="#ef4444", opacity=0.75, line={"color": "#ef4444"}).encode(
+            x=alt.X("t:T", title=None),
+            y=alt.Y("drawdown:Q", title="drawdown %"),
+            tooltip=[alt.Tooltip("t:T", title="time"),
+                     alt.Tooltip("drawdown:Q", format=".2f")]),
+        height)
 
 
 def dir_class(d: str) -> str:
@@ -400,15 +520,16 @@ with tabs[0]:
         plot = df.tail(320).copy()
         plot["EMA 20"] = plot["close"].ewm(span=20, adjust=False).mean()
         plot["EMA 50"] = plot["close"].ewm(span=50, adjust=False).mean()
-        st.line_chart(plot[["close", "EMA 20", "EMA 50"]], height=300)
+        st.altair_chart(price_chart(plot[["close", "EMA 20", "EMA 50"]]),
+                        use_container_width=True)
         st.caption(f"{meta['bars']} bars from **{meta['provider']}** · last bar `{meta['last_bar']}`"
                    + (" · cached" if meta["from_cache"] else ""))
     with c2:
         st.markdown("#### Category scores")
-        cat_df = pd.DataFrame([c.to_dict() for c in con.categories if c.available > 0])
-        if not cat_df.empty:
-            cat_df = cat_df.sort_values("score")
-            st.bar_chart(cat_df.set_index("category")["score"], height=300)
+        cat_rows = [c.to_dict() for c in con.categories if c.available > 0]
+        if cat_rows:
+            st.altair_chart(category_chart(cat_rows, height=max(300, 20 * len(cat_rows))),
+                            use_container_width=True)
 
     st.markdown("#### Where the conviction comes from")
     lc, rc = st.columns(2)
@@ -516,7 +637,8 @@ with tabs[1]:
                                   unsafe_allow_html=True)
                     st.info(sig.rationale)
                     if len(bt.equity_curve):
-                        st.line_chart(bt.equity_curve, height=220)
+                        st.altair_chart(equity_chart(bt.equity_curve, 220),
+                                        use_container_width=True)
                 else:
                     st.warning(f"Cannot run here: {sig.reason_unavailable}")
             except Exception as exc:
@@ -662,9 +784,8 @@ with tabs[2]:
                     if len(bt6.equity_curve):
                         st.markdown("**Equity curve and drawdown**")
                         eq = bt6.equity_curve
-                        st.line_chart(pd.DataFrame(
-                            {"Equity": eq, "Peak": eq.cummax()}), height=240)
-                        st.area_chart((eq / eq.cummax() - 1) * 100, height=160)
+                        st.altair_chart(equity_chart(eq, 240), use_container_width=True)
+                        st.altair_chart(drawdown_chart(eq, 150), use_container_width=True)
 
                     if rep.monthly_returns:
                         st.markdown("**Monthly returns (%)**")
