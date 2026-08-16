@@ -50,6 +50,105 @@ class Provider:
     models: tuple[str, ...] = ()
     notes: str = ""
     local: bool = False
+    model_notes: dict[str, str] = field(default_factory=dict)
+    # Models the catalog advertises that cannot do general chat. Kept explicitly
+    # so they are never offered — see NVIDIA_WRONG_MODALITY for why this matters.
+    exclude: tuple[str, ...] = ()
+
+
+# ── NVIDIA NIM, verified against a live key ───────────────────────────────────
+#
+# NVIDIA's /v1/models returns everything the key can address — embeddings,
+# rerankers, OCR, safety classifiers, translation. Most of it answers HTTP 200
+# to a /chat/completions call and then returns something useless. Probing with
+# max_tokens=1 is therefore not enough to know a model is usable; every entry
+# below was additionally given a real position-sizing question and had to get
+# the answer right.
+#
+# What the probe found on 2026-08-17 (102 catalogued):
+#   31 accepted a chat request
+#   21 of those actually reasoned correctly
+#    6 were the wrong modality entirely        <- NVIDIA_WRONG_MODALITY
+#    2 answered but got the arithmetic wrong
+#    2 were inconclusive (cold-start timeout)
+#   71 rejected /chat/completions outright (embeddings, vision encoders, OCR)
+#
+# Of the 21, the 15 below are the current reasoning text models; the remaining
+# six are older or vision-language and sit in NVIDIA_ALSO_WORKS.
+#
+# Re-run any time with: python tools/verify_llm_models.py --provider nvidia
+NVIDIA_REASONING = (
+    # Frontier reasoning — the strongest general models on the platform.
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "nvidia/nemotron-3-super-120b-a12b",
+    "z-ai/glm-5.2",
+    "minimaxai/minimax-m3",
+    "deepseek-ai/deepseek-v4-flash-0731",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    "stepfun-ai/step-3.7-flash",
+    "thinkingmachines/inkling",
+    # Fast reasoning — 30B-class mixtures, low seconds end to end.
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia/nemotron-3-nano-30b-a3b",
+    "meta/muse-glimmer-30b",
+    "openai/gpt-oss-20b",
+    "google/gemma-4-31b-it",
+    "nvidia/nvidia-nemotron-nano-9b-v2",
+)
+
+# Verified working, but deliberately not offered by default: superseded
+# generations, an experimental diffusion LM, and two vision-language models.
+# The VL models are the reason this list exists rather than a looser filter —
+# llama-3.1-nemotron-nano-vl-8b-v1 answered the sizing question correctly once
+# and returned 27 instead of 277 on a re-run. A model that reasons only
+# sometimes is worse in a trading dashboard than one that fails loudly.
+# All of these remain reachable through "Fetch models from API".
+NVIDIA_ALSO_WORKS = (
+    "nvidia/llama-3.3-nemotron-super-49b-v1",
+    "meta/llama-3.1-70b-instruct",
+    "meta/llama-3.1-8b-instruct",
+    "google/diffusiongemma-26b-a4b-it",
+    "nvidia/nemotron-nano-12b-v2-vl",
+    "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+)
+
+NVIDIA_MODEL_NOTES = {
+    "nvidia/nemotron-3-ultra-550b-a55b": "flagship · 550B MoE · best reasoning",
+    "nvidia/nemotron-3-super-120b-a12b": "120B MoE · strong, fast",
+    "z-ai/glm-5.2": "GLM 5.2 · fast and accurate",
+    "minimaxai/minimax-m3": "MiniMax M3 · long context",
+    "deepseek-ai/deepseek-v4-flash-0731": "DeepSeek V4 Flash",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5": "reasoning-tuned Llama 3.3 49B",
+    "stepfun-ai/step-3.7-flash": "Step 3.7 Flash",
+    "thinkingmachines/inkling": "Inkling",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": "explicit reasoning traces",
+    "nvidia/nemotron-3.5-lightning-30b-a3b": "lowest latency 30B",
+    "nvidia/nemotron-3-nano-30b-a3b": "30B MoE",
+    "meta/muse-glimmer-30b": "Muse Glimmer 30B",
+    "openai/gpt-oss-20b": "GPT-OSS 20B · open weights",
+    "google/gemma-4-31b-it": "Gemma 4 31B",
+    "nvidia/nvidia-nemotron-nano-9b-v2": "9B · cheapest that reasons well",
+    "nvidia/llama-3.3-nemotron-super-49b-v1": "superseded by v1.5",
+    "meta/llama-3.1-70b-instruct": "previous generation",
+    "meta/llama-3.1-8b-instruct": "previous generation · small",
+    "google/diffusiongemma-26b-a4b-it": "diffusion LM · experimental",
+    "nvidia/nemotron-nano-12b-v2-vl": "vision-language · handles text",
+    "nvidia/llama-3.1-nemotron-nano-vl-8b-v1": "vision-language · handles text",
+}
+
+# These answer HTTP 200 and then return a safety verdict or a translation.
+# Offering them in a model picker produces silent garbage, so they are blocked.
+NVIDIA_WRONG_MODALITY = (
+    "nvidia/llama-3.1-nemoguard-8b-content-safety",   # -> {"User Safety": "safe"}
+    "nvidia/llama-3.1-nemoguard-8b-topic-control",    # -> "on-topic"
+    "nvidia/llama-3.1-nemotron-safety-guard-8b-v3",   # -> {"User Safety": "safe"}
+    "nvidia/nemotron-3.5-content-safety",             # -> "User Safety: safe"
+    "nvidia/riva-translate-4b-instruct-v1.1",         # echoes the prompt back
+    "nvidia/riva-translate-4b-instruct-v2",           # translated the prompt to Chinese
+    "nvidia/nemotron-parse",                          # rejects plain-text input
+    "nvidia/nemoretriever-parse",                     # rejects plain-text input
+)
 
 
 # Model names change constantly. These are sensible defaults, not a hard list —
@@ -73,10 +172,13 @@ PROVIDERS: dict[str, Provider] = {
         notes="Keys from aistudio.google.com/apikey — free tier available"),
     "nvidia": Provider(
         "nvidia", "NVIDIA NIM", OPENAI_STYLE, "https://integrate.api.nvidia.com/v1",
-        "meta/llama-3.3-70b-instruct", "NVIDIA_API_KEY",
-        models=("meta/llama-3.3-70b-instruct", "deepseek-ai/deepseek-r1",
-                "qwen/qwen2.5-coder-32b-instruct"),
-        notes="Free credits at build.nvidia.com"),
+        "nvidia/nemotron-3-ultra-550b-a55b", "NVIDIA_API_KEY",
+        models=NVIDIA_REASONING, model_notes=NVIDIA_MODEL_NOTES,
+        exclude=NVIDIA_WRONG_MODALITY,
+        notes="Free credits at build.nvidia.com. These 15 reasoning models were each "
+              "verified against a live key by answering a real position-sizing "
+              "question. Use “Fetch models from API” for the full catalog your key "
+              "can reach, and “Verify all models” to re-test them."),
     "groq": Provider(
         "groq", "Groq", OPENAI_STYLE, "https://api.groq.com/openai/v1",
         "llama-3.3-70b-versatile", "GROQ_API_KEY",
@@ -308,21 +410,108 @@ def test_connection(cfg: Optional[LLMConfig] = None) -> dict:
                 "latency_ms": int((time.time() - started) * 1000), "error": str(exc)}
 
 
-def list_local_models(cfg: Optional[LLMConfig] = None) -> list[str]:
-    """Ask a local OpenAI-compatible server which models it currently has."""
+def list_models(cfg: Optional[LLMConfig] = None, timeout: int = 20) -> list[str]:
+    """
+    Ask an OpenAI-compatible endpoint which models the key can address.
+
+    Works for hosted providers as well as local servers. Note the catalog is a
+    claim about addressability, not usability: NVIDIA lists embedding, OCR and
+    safety models here that accept a chat request and return nonsense. Use
+    ``verify_models`` when it matters which ones actually work.
+    """
     cfg = cfg or load_config()
     p, _, base, key = cfg.resolved()
-    if not base:
+    if not base or p.style != OPENAI_STYLE:
         return []
     try:
         req = urllib.request.Request(
             f"{base}/models",
             headers={"Authorization": f"Bearer {key}"} if key else {})
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        return sorted(m.get("id", "") for m in data.get("data", []) if m.get("id"))
+        ids = {m.get("id", "") for m in data.get("data", []) if m.get("id")}
+        return sorted(ids - set(p.exclude))
     except Exception:
         return []
+
+
+# Backwards-compatible alias — the dashboard used to call this for local only.
+list_local_models = list_models
+
+
+# A question with one checkable answer, phrased the way the dashboard prompts.
+# 2% of 50,000 = 1,000 risk budget; 180.00 - 176.40 = 3.60 per share;
+# 1,000 / 3.60 = 277.7 -> 277 whole shares.
+_PROBE_SYSTEM = "You are a quantitative analyst. Show your working, then give the final answer."
+_PROBE_QUESTION = (
+    "Capital is $50,000. The risk budget for this trade is 2% of capital.\n"
+    "Entry price is $180.00 and the stop-loss is $176.40.\n\n"
+    "Step 1: risk budget in dollars = 2% x 50000\n"
+    "Step 2: risk per share = entry - stop\n"
+    "Step 3: shares = step 1 / step 2, rounded DOWN to a whole number\n\n"
+    "What is the answer to step 3?")
+_PROBE_ANSWER = "277"
+
+
+def verify_model(model: str, cfg: Optional[LLMConfig] = None,
+                 timeout: int = 120) -> dict:
+    """
+    Decide whether one model can actually do this job.
+
+    An HTTP 200 is not the test. A safety classifier returns 200 and the body
+    ``{"User Safety": "safe"}``; a translation model returns 200 and the prompt
+    rendered in Chinese. Both would sit in a model picker looking healthy. So
+    the model has to answer a real question correctly to pass.
+    """
+    import re
+    cfg = cfg or load_config()
+    probe = LLMConfig(**{**cfg.__dict__, "model": model,
+                         "max_tokens": 3000, "temperature": 0.0,
+                         "timeout": timeout})
+    started = time.time()
+    try:
+        reply = chat(_PROBE_SYSTEM, _PROBE_QUESTION, probe)
+    except LLMError as exc:
+        return {"model": model, "status": "error", "usable": False,
+                "detail": str(exc)[:200], "ms": int((time.time() - started) * 1000)}
+
+    text = (reply or "").strip()
+    digits = re.findall(r"\d[\d,]*", text.replace(",", ""))
+    correct = _PROBE_ANSWER in digits
+    return {"model": model,
+            "status": "ok" if correct else ("answered" if text else "empty"),
+            "usable": correct, "reply": text[-160:],
+            "ms": int((time.time() - started) * 1000)}
+
+
+def verify_models(models: Optional[list[str]] = None,
+                  cfg: Optional[LLMConfig] = None,
+                  workers: int = 4,
+                  progress=None) -> list[dict]:
+    """
+    Verify a list of models concurrently; returns one record each.
+
+    ``progress`` is called with (done, total, record) after each result so a UI
+    can show a bar. Defaults to the provider's declared model list.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Lock
+
+    cfg = cfg or load_config()
+    p, _, _, _ = cfg.resolved()
+    models = models or list(p.models) or [p.default_model]
+    lock, done = Lock(), [0]
+
+    def one(m: str) -> dict:
+        rec = verify_model(m, cfg)
+        if progress:
+            with lock:
+                done[0] += 1
+                progress(done[0], len(models), rec)
+        return rec
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        return list(ex.map(one, models))
 
 
 # ── the analysis prompt ───────────────────────────────────────────────────────

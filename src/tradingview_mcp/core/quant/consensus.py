@@ -179,10 +179,10 @@ def evaluate_all(
     meta: Optional[dict] = None,
 ) -> tuple[FeatureSet, list[tuple[BaseStrategy, Signal]]]:
     """Run every model once over a shared FeatureSet and return all signals."""
-    if isinstance(data, FeatureSet):
-        f = data
-    else:
-        f = build_features(data, interval, symbol)
+    # DataFrame, not FeatureSet — see the note in BaseStrategy.analyze. Under
+    # Streamlit's reloader a cached FeatureSet fails an isinstance check
+    # against the freshly imported class.
+    f = build_features(data, interval, symbol) if isinstance(data, pd.DataFrame) else data
     f.meta.update(meta or {})
     f.meta["available_feeds"] = tuple(available_feeds)
 

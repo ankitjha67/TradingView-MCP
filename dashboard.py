@@ -38,8 +38,8 @@ from tradingview_mcp.core.quant.sizing import (
     resolve_instrument,
 )
 from tradingview_mcp.core.quant.llm import (
-    PROVIDERS, LLMConfig, analyze as llm_analyze, list_local_models,
-    load_config, save_config, test_connection,
+    PROVIDERS, LLMConfig, analyze as llm_analyze, list_models,
+    load_config, save_config, test_connection, verify_models,
 )
 from tradingview_mcp.core.quant.performance import analyse as analyse_performance
 from tradingview_mcp.core.quant.performance import render_markdown as render_performance
@@ -893,23 +893,81 @@ with tabs[4]:
     if prov.notes:
         st.caption(prov.notes)
 
-    with mcol:
-        opts = list(prov.models) or [prov.default_model]
-        if prov.local:
-            live = list_local_models(LLMConfig(provider=pkey))
-            if live:
-                opts = live
-        model = st.selectbox("Model", opts + ["(type a custom name)"],
-                             index=opts.index(cfg.model) if cfg.model in opts else 0)
-        if model == "(type a custom name)":
-            model = st.text_input("Custom model name", value=cfg.model or prov.default_model)
-
+    # The key has to be read before the model list, because for a hosted
+    # provider the catalog is a property of the key, not of the vendor.
     api_key = ""
     if prov.needs_key:
         api_key = st.text_input(f"{prov.label} API key", type="password", value=cfg.api_key,
                                 help=f"Or set the {prov.env_var} environment variable.")
     base_url = st.text_input("Base URL", value=cfg.base_url or prov.base_url,
                              help="Change only for a self-hosted or proxied endpoint.")
+
+    probe_cfg = LLMConfig(provider=pkey, api_key=api_key, base_url=base_url)
+    fetched = st.session_state.get(f"models_{pkey}")
+    verdicts = st.session_state.get(f"verified_{pkey}", {})
+
+    with mcol:
+        # Curated first — these are the ones verified to actually reason. A live
+        # fetch appends anything new the key can reach that we have not seen.
+        opts = list(prov.models) or [prov.default_model]
+        if prov.local and not fetched:
+            fetched = list_models(probe_cfg)
+        if fetched:
+            opts = opts + [m for m in fetched if m not in opts]
+
+        def _label(m: str) -> str:
+            v = verdicts.get(m)
+            mark = "" if v is None else ("  ✓" if v else "  ✗")
+            note = prov.model_notes.get(m, "")
+            return f"{m}{mark}" + (f"  —  {note}" if note else "")
+
+        model = st.selectbox("Model", opts + ["(type a custom name)"],
+                             index=opts.index(cfg.model) if cfg.model in opts else 0,
+                             format_func=lambda m: m if m.startswith("(") else _label(m))
+        if model == "(type a custom name)":
+            model = st.text_input("Custom model name", value=cfg.model or prov.default_model)
+
+    if prov.style == "openai":
+        f1, f2 = st.columns(2)
+        if f1.button("Fetch models from API", use_container_width=True,
+                     help="Ask the endpoint which models this key can address."):
+            with st.spinner("Querying the catalog…"):
+                got = list_models(probe_cfg)
+            if got:
+                st.session_state[f"models_{pkey}"] = got
+                extra = [m for m in got if m not in prov.models]
+                st.success(f"{len(got)} models addressable with this key "
+                           f"({len(extra)} beyond the verified list).")
+                st.rerun()
+            else:
+                st.warning("No catalog returned. Check the key and base URL.")
+
+        if f2.button("Verify all models", use_container_width=True,
+                     help="Send each model a real question and keep only the ones "
+                          "that answer correctly. Takes a minute."):
+            targets = [m for m in opts if not m.startswith("(")]
+            bar, status = st.progress(0.0), st.empty()
+
+            def _tick(done, total, rec):
+                bar.progress(done / total)
+                status.caption(f"{done}/{total} · {rec['model']} "
+                               f"{'✓' if rec['usable'] else '✗'}")
+
+            res = verify_models(targets, probe_cfg, progress=_tick)
+            st.session_state[f"verified_{pkey}"] = {r["model"]: r["usable"] for r in res}
+            good = [r for r in res if r["usable"]]
+            bar.empty(); status.empty()
+            st.success(f"{len(good)} of {len(res)} answered correctly.")
+            with st.expander(f"{len(res) - len(good)} that did not — and what they returned"):
+                for r in res:
+                    if not r["usable"]:
+                        st.markdown(f"`{r['model']}` — {r.get('reply') or r.get('detail','')}")
+            st.rerun()
+
+        if verdicts:
+            ok_n = sum(1 for v in verdicts.values() if v)
+            st.caption(f"Verified on this key: {ok_n} usable of {len(verdicts)} tested. "
+                       "✓ answered a real position-sizing question correctly.")
 
     o1, o2, o3 = st.columns(3)
     temperature = o1.slider("Temperature", 0.0, 1.0, float(cfg.temperature), 0.05)

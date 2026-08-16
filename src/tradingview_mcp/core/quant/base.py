@@ -166,7 +166,13 @@ class BaseStrategy:
 
     def analyze(self, data, interval: str = "1d", symbol: str = "") -> Signal:
         """Full-depth read on the most recent bar."""
-        f = data if isinstance(data, FeatureSet) else build_features(data, interval, symbol)
+        # Test for DataFrame rather than FeatureSet. Both branches are correct
+        # in a normal process, but Streamlit's file watcher re-imports this
+        # module while cached FeatureSet instances still point at the previous
+        # class object, so `isinstance(data, FeatureSet)` goes False for a
+        # genuine FeatureSet and the whole page dies on `len(FeatureSet)`.
+        # pandas is never the module being reloaded, so its identity holds.
+        f = build_features(data, interval, symbol) if isinstance(data, pd.DataFrame) else data
 
         ok, why = self.availability(f)
         if not ok:

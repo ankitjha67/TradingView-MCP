@@ -286,7 +286,8 @@ def compare_strategies(
     Ranked by Sharpe rather than total return by default: total return rewards
     whichever model happened to take the most risk, which is not a skill measure.
     """
-    f = data if isinstance(data, FeatureSet) else build_features(data, interval, symbol)
+    # DataFrame, not FeatureSet — see the note in BaseStrategy.analyze.
+    f = build_features(data, interval, symbol) if isinstance(data, pd.DataFrame) else data
     f.meta["available_feeds"] = tuple(available_feeds)
 
     reg = registry or get_registry()
