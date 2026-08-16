@@ -40,6 +40,8 @@ from tradingview_mcp.core.quant.llm import (
     PROVIDERS, LLMConfig, analyze as llm_analyze, list_local_models,
     load_config, save_config, test_connection,
 )
+from tradingview_mcp.core.quant.performance import analyse as analyse_performance
+from tradingview_mcp.core.quant.performance import render_markdown as render_performance
 from tradingview_mcp.core.quant.market_data import (
     CANONICAL_INTERVALS, fetch_ohlcv, parse_symbol, seconds_to_next_close,
 )
@@ -570,6 +572,113 @@ with tabs[2]:
                 "max_drawdown_pct": "max DD %", "win_rate_pct": "win %",
                 "total_trades": "trades", "exposure_pct": "exposure %"}),
                 use_container_width=True, height=420, hide_index=True)
+
+            st.markdown("#### Full performance report")
+            st.caption("The TradingView Strategy Tester view: All / Long / Short breakdown, "
+                       "MAE/MFE, run-up, streaks, risk ratios and a monthly grid.")
+            perf_pick = st.selectbox("Model", rank["strategy"].head(30).tolist(),
+                                     key="perf_pick")
+            if st.button("Build performance report"):
+                df6, _ = load_market(symbol, interval, spec.exchange)
+                f6 = build_features(df6.tail(1500), interval, symbol)
+                strat6 = REG.get(perf_pick)
+                bt6 = run_backtest(strat6, f6, commission_pct=comm, slippage_pct=slip,
+                                   allow_short=shorts)
+                if bt6.error:
+                    st.warning(bt6.error)
+                else:
+                    rep = analyse_performance(
+                        bt6, f6.df, bars_per_year=f6.bars_per_year,
+                        commission_pct=comm, slippage_pct=slip, position=bt6.position)
+                    a_, l_, s_ = rep.all_trades, rep.long_trades, rep.short_trades
+                    r_ = rep.risk
+
+                    k = st.columns(5)
+                    k[0].markdown(card("Net profit", f"{a_.net_profit_pct:+.1f}%",
+                                       f"vs {rep.buy_and_hold_pct:+.1f}% hold",
+                                       "var(--long)" if a_.net_profit_pct > 0 else "var(--short)"),
+                                  unsafe_allow_html=True)
+                    k[1].markdown(card("Max drawdown", f"{r_.max_drawdown_pct:.1f}%",
+                                       f"over {r_.max_drawdown_bars} bars", "var(--short)"),
+                                  unsafe_allow_html=True)
+                    k[2].markdown(card("Max run-up", f"{r_.max_runup_pct:+.1f}%",
+                                       f"over {r_.max_runup_bars} bars", "var(--long)"),
+                                  unsafe_allow_html=True)
+                    k[3].markdown(card("Profit factor", f"{a_.profit_factor:.2f}",
+                                       f"{a_.total_trades} trades"), unsafe_allow_html=True)
+                    k[4].markdown(card("Sharpe / Sortino",
+                                       f"{r_.sharpe:.2f} / {r_.sortino:.2f}",
+                                       f"Calmar {r_.calmar:.2f}"), unsafe_allow_html=True)
+
+                    for c_ in rep.caveats:
+                        st.warning(c_, icon="⚠")
+
+                    st.markdown("**Performance summary — All / Long / Short**")
+                    side_rows = [
+                        ("Net profit %", "net_profit_pct"), ("Profit factor", "profit_factor"),
+                        ("Total trades", "total_trades"), ("Percent profitable", "percent_profitable"),
+                        ("Avg trade %", "avg_trade_pct"), ("Avg win %", "avg_win_pct"),
+                        ("Avg loss %", "avg_loss_pct"), ("Win/loss ratio", "win_loss_ratio"),
+                        ("Largest win %", "largest_win_pct"), ("Largest loss %", "largest_loss_pct"),
+                        ("Avg bars held", "avg_bars"),
+                        ("Max consec. wins", "max_consecutive_wins"),
+                        ("Max consec. losses", "max_consecutive_losses"),
+                        ("Avg MAE %", "avg_mae_pct"), ("Avg MFE %", "avg_mfe_pct"),
+                    ]
+                    st.dataframe(pd.DataFrame(
+                        [{"Metric": lbl, "All": getattr(a_, at),
+                          "Long": getattr(l_, at), "Short": getattr(s_, at)}
+                         for lbl, at in side_rows]),
+                        use_container_width=True, hide_index=True, height=560)
+
+                    rr, dd = st.columns(2)
+                    with rr:
+                        st.markdown("**Risk & return ratios**")
+                        st.dataframe(pd.DataFrame([
+                            {"Ratio": "Sharpe", "Value": r_.sharpe},
+                            {"Ratio": "Sortino", "Value": r_.sortino},
+                            {"Ratio": "Calmar", "Value": r_.calmar},
+                            {"Ratio": "Omega", "Value": r_.omega},
+                            {"Ratio": "Martin (UPI)", "Value": r_.martin_ratio},
+                            {"Ratio": "K-ratio", "Value": r_.k_ratio},
+                            {"Ratio": "Recovery factor", "Value": r_.recovery_factor},
+                            {"Ratio": "Ulcer Index", "Value": r_.ulcer_index},
+                            {"Ratio": "Tail ratio", "Value": r_.tail_ratio},
+                        ]), use_container_width=True, hide_index=True, height=350)
+                    with dd:
+                        st.markdown("**Return distribution**")
+                        st.dataframe(pd.DataFrame([
+                            {"Metric": "CAGR %", "Value": r_.cagr_pct},
+                            {"Metric": "Volatility %", "Value": r_.volatility_pct},
+                            {"Metric": "Downside deviation %", "Value": r_.downside_deviation_pct},
+                            {"Metric": "VaR 95% per bar", "Value": r_.var_95_pct},
+                            {"Metric": "CVaR 95% per bar", "Value": r_.cvar_95_pct},
+                            {"Metric": "Skew", "Value": r_.skew},
+                            {"Metric": "Excess kurtosis", "Value": r_.excess_kurtosis},
+                            {"Metric": "Time in market %", "Value": r_.time_in_market_pct},
+                            {"Metric": "Positive bars %", "Value": r_.positive_bars_pct},
+                        ]), use_container_width=True, hide_index=True, height=350)
+
+                    if len(bt6.equity_curve):
+                        st.markdown("**Equity curve and drawdown**")
+                        eq = bt6.equity_curve
+                        st.line_chart(pd.DataFrame(
+                            {"Equity": eq, "Peak": eq.cummax()}), height=240)
+                        st.area_chart((eq / eq.cummax() - 1) * 100, height=160)
+
+                    if rep.monthly_returns:
+                        st.markdown("**Monthly returns (%)**")
+                        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "YEAR"]
+                        grid = pd.DataFrame(rep.monthly_returns).T.reindex(columns=months)
+                        st.dataframe(
+                            grid.style.format("{:+.1f}", na_rep="—")
+                            .background_gradient(cmap="RdYlGn", vmin=-15, vmax=15),
+                            use_container_width=True)
+
+                    st.download_button("Download full report (Markdown)",
+                                       render_performance(rep),
+                                       file_name=f"{perf_pick.replace(' ', '_')}_performance.md")
 
             st.markdown("#### Is the confidence score worth anything here?")
             st.caption("Buckets every historical bar by consensus strength and measures what "

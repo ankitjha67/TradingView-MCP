@@ -83,6 +83,9 @@ class BacktestResult:
 
     equity_curve: pd.Series = field(default_factory=pd.Series, repr=False)
     trades: list[Trade] = field(default_factory=list, repr=False)
+    # Retained so performance.analyse() can compute time-in-market and so the
+    # position path can be inspected without re-running the strategy.
+    position: pd.Series = field(default_factory=pd.Series, repr=False)
     error: str = ""
 
     def to_dict(self, include_curve: bool = False) -> dict:
@@ -222,7 +225,7 @@ def run_backtest(
         exposure_pct=float((position.abs() > 0).mean() * 100),
         buy_and_hold_pct=bh * 100,
         excess_return_pct=(total_return - bh) * 100,
-        equity_curve=equity, trades=trades)
+        equity_curve=equity, trades=trades, position=position)
 
 
 def _extract_trades(position: pd.Series, f: FeatureSet, net: pd.Series,

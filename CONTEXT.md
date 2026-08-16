@@ -29,6 +29,7 @@ TradingViewAntigravity/
     │   ├── confidence.py     # 8-component trade score, vetoes, empirical calibration
     │   ├── sizing.py         # Capital 1k–1M, confidence-scaled position sizing
     │   ├── backtest.py       # Vectorised simulation + walk-forward
+    │   ├── performance.py    # TradingView-style Strategy Tester report
     │   ├── monitor.py        # Bar-close-aligned live loop, CDP chart detection
     │   ├── llm.py            # Provider-agnostic LLM layer (stdlib only)
     │   └── library/          # 311 models in 16 modules, one per category
@@ -295,3 +296,36 @@ params; that number is real information, not a fudge.
 ```bash
 python tools/verify_pine.py --symbol SPY --interval 1d --bars 2500 --verbose
 ```
+
+
+## 12. Performance analytics (`performance.py`)
+
+`backtest.py` returns headline numbers; `performance.analyse()` returns the full
+Strategy Tester view — **All / Long / Short** columns, MAE/MFE per trade, drawdown *and*
+run-up with durations, streaks, a monthly grid, and the risk-ratio block.
+
+```bash
+python tools/strategy_report.py --symbol AAPL --interval 1d --top
+python tools/strategy_report.py --strategy "Turtle Trading System 1" --long-only
+```
+
+**Why the side split is the headline.** A strategy profitable overall but losing on every
+short is two strategies wearing one name, and the blended row hides it. Donchian on AAPL:
++34% net looks mediocre until the split shows **long +142% (PF 2.39) against short −108%
+(PF 0.37)**. Running it long-only takes Sharpe 0.22 → 0.94 and drawdown −51.7% → −24.6%.
+The report emits that as a caveat automatically.
+
+**Caveats are part of the result**, not a footnote — thin trade counts, short samples,
+near-zero drawdown denominators, and single-trade-dominated profit all self-report.
+
+**Ratio definitions matter.** Several of these have competing formulations:
+
+| Ratio | Form used |
+|---|---|
+| Omega | Σ gains ÷ Σ losses at a zero threshold (Keating & Shadwick 2002) |
+| Ulcer Index | RMS drawdown — penalises depth *and* duration (Martin & McCann 1989) |
+| Martin (UPI) | CAGR ÷ Ulcer Index |
+| K-ratio | slope t-stat ÷ √n (Kestner). Multiplying by √n instead yields values in the thousands — a bug caught in review |
+| Recovery factor | net profit ÷ max drawdown |
+| Tail ratio | \|95th pct\| ÷ \|5th pct\| of bar returns |
+| MAE / MFE | worst / best unrealised excursion while the position was open |
