@@ -381,8 +381,14 @@ def walk_forward(
                 "strategy": strategy.name, "symbol": f.symbol, "interval": f.interval,
                 "folds": fold_results}
 
+    # A fold in which the strategy never opened a position has no volatility and
+    # so no defined Sharpe. Averaging with np.mean lets that one NaN swallow the
+    # whole statistic and report "nan ± nan" for a run whose other folds were
+    # measured perfectly well. Average the folds that could be measured, and say
+    # how many those were rather than implying all of them counted.
+    measured = [s for s in sharpes if math.isfinite(s)]
     consistency = profitable / len(valid)
-    spread = float(np.std(sharpes))
+    spread = float(np.std(measured)) if measured else float("nan")
     verdict = ("consistent across folds" if consistency >= 0.75 and spread < 1.0 else
                "mixed — performance is fold-dependent" if consistency >= 0.5 else
                "inconsistent — likely overfit or regime-specific")
@@ -391,7 +397,10 @@ def walk_forward(
         "strategy": strategy.name, "symbol": f.symbol, "interval": f.interval,
         "folds": fold_results,
         "profitable_folds": f"{profitable}/{len(valid)}",
-        "mean_sharpe": round(float(np.mean(sharpes)), 3),
-        "sharpe_std": round(spread, 3),
+        "mean_sharpe": round(float(np.mean(measured)), 3) if measured else float("nan"),
+        "sharpe_std": round(spread, 3) if measured else float("nan"),
+        # Distinguishes "averaged over 4 folds" from "averaged over the 2 that
+        # had a position" — the verdict reads very differently in each case.
+        "sharpe_folds_measured": f"{len(measured)}/{len(valid)}",
         "verdict": verdict,
     }
