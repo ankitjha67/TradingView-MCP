@@ -614,12 +614,24 @@ def build_analysis_prompt(consensus: dict, risk: Optional[dict] = None,
 
     reg = consensus.get("regime", {})
     if reg:
+        # One labelled number per line, rounded. Packing two onto a line
+        # ("ADX: 19.714808  trend strength: 0.297131") got the two transposed
+        # in the reply — the model reported "ADX 0.28", quoting trend strength
+        # under the ADX label. Eighteen significant digits invite the same
+        # class of transcription error.
+        def _n(key: str, dp: int = 2) -> str:
+            v = reg.get(key)
+            return f"{v:.{dp}f}" if isinstance(v, (int, float)) else str(v)
+
         parts += ["", "REGIME",
                   f"  classification: {reg.get('label')}",
-                  f"  ADX: {reg.get('adx')}   trend strength: {reg.get('trend_strength')}",
-                  f"  realized vol: {reg.get('realized_vol_pct')}%  (percentile {reg.get('vol_percentile')})",
-                  f"  Hurst: {reg.get('hurst')}   efficiency ratio: {reg.get('efficiency_ratio')}",
-                  f"  drawdown from peak: {reg.get('drawdown_pct')}%"]
+                  f"  ADX: {_n('adx')}",
+                  f"  trend strength: {_n('trend_strength')}",
+                  f"  realized vol %: {_n('realized_vol_pct')}",
+                  f"  realized vol percentile: {_n('vol_percentile')}",
+                  f"  Hurst: {_n('hurst')}",
+                  f"  efficiency ratio: {_n('efficiency_ratio')}",
+                  f"  drawdown from peak %: {_n('drawdown_pct')}"]
 
     cats = consensus.get("categories", [])
     if cats:

@@ -428,7 +428,11 @@ class VolatilityCompressionReversion(BaseStrategy):
         bb_up, _, bb_lo, _, _ = f.bollinger(self.params["period"], 2.0)
         kc_up, _, kc_lo = f.keltner(self.params["period"], 14, 1.5)
         squeezed = ((bb_up < kc_up) & (bb_lo > kc_lo))
-        released = squeezed.shift(1).fillna(False) & ~squeezed
+        # fill_value, not .fillna: shifting a bool Series introduces NaN, which
+        # promotes the column to object dtype, and .fillna on object dtype is
+        # deprecated (it warns on every scan and changes behaviour in a future
+        # pandas). Filling during the shift keeps it boolean throughout.
+        released = squeezed.shift(1, fill_value=False) & ~squeezed
         direction = np.sign(f.close - f.sma(self.params["period"]))
         return persist(released.astype(float) * direction, self.params["hold"])
 

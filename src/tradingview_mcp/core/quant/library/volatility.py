@@ -383,9 +383,14 @@ class VolatilityBreakout(BaseStrategy):
     def score(self, f: FeatureSet) -> pd.Series:
         rng = f.true_range
         narrow = rng.rolling(self.params["compress_window"], min_periods=self.params["compress_window"]).max()
-        was_narrow = (narrow <= rng.rolling(self.params["lookback"], min_periods=20).quantile(0.25)).shift(1)
+        # fill_value on the shift rather than a later .fillna — shifting a bool
+        # Series introduces NaN, promoting it to object dtype, and .fillna on
+        # object dtype is deprecated and changes behaviour in a future pandas.
+        was_narrow = (narrow <= rng.rolling(self.params["lookback"],
+                                            min_periods=20).quantile(0.25)
+                      ).shift(1, fill_value=False)
         expanding = rng > rng.rolling(20, min_periods=10).mean() * 1.5
-        trigger = (was_narrow.fillna(False) & expanding).astype(float)
+        trigger = (was_narrow & expanding).astype(float)
         return persist(trigger * np.sign(f.close - f.open), self.params["hold"])
 
     def diagnostics(self, f: FeatureSet) -> dict:
