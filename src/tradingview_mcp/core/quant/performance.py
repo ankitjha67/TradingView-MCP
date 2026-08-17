@@ -325,17 +325,26 @@ def _risk_metrics(equity: pd.Series, net: pd.Series, position: Optional[pd.Serie
     downside = r[r < 0]
     m.downside_deviation_pct = _safe(downside.std(ddof=0) * math.sqrt(bars_per_year) * 100)
 
+    # Undefined, not zero. Zero volatility means the equity curve never moved —
+    # the strategy did not trade — and a reported Sharpe of 0.00 claims it traded
+    # and earned nothing risk-adjusted. Zero downside deviation is stronger
+    # still: no losing bar at all, which is the best case, not a null one.
+    # recovery_factor, omega and martin_ratio below already use NaN for exactly
+    # this; these three did not, and rankings sort on them.
     mean_ann = float(r.mean()) * bars_per_year
-    m.sharpe = _safe(mean_ann / (m.volatility_pct / 100)) if m.volatility_pct > 1e-9 else 0.0
+    m.sharpe = (_safe(mean_ann / (m.volatility_pct / 100))
+                if m.volatility_pct > 1e-9 else float("nan"))
     m.sortino = (_safe(mean_ann / (m.downside_deviation_pct / 100))
-                 if m.downside_deviation_pct > 1e-9 else 0.0)
+                 if m.downside_deviation_pct > 1e-9 else float("nan"))
 
     dd_pct, dd_bars, ru_pct, ru_bars, recover = _drawdown_and_runup(equity)
     m.max_drawdown_pct, m.max_drawdown_bars = dd_pct, dd_bars
     m.max_runup_pct, m.max_runup_bars = ru_pct, ru_bars
     m.time_to_recover_bars = recover
 
-    m.calmar = _safe(m.cagr_pct / abs(dd_pct)) if abs(dd_pct) > 1e-9 else 0.0
+    # Zero drawdown with a positive CAGR is the best outcome a curve can have,
+    # so returning 0.0 here ranked it below every strategy that did lose money.
+    m.calmar = _safe(m.cagr_pct / abs(dd_pct)) if abs(dd_pct) > 1e-9 else float("nan")
     net_profit = (final - 1.0) * 100
     m.recovery_factor = _safe(net_profit / abs(dd_pct)) if abs(dd_pct) > 1e-9 else float("nan")
 

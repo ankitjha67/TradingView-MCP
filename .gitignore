@@ -252,6 +252,10 @@ tv_active_chart.md
 tv_active_chart.json
 pine_out/
 .pytest_cache/
+# Single-instance guard for the monitor daemon: the lock plus the file naming
+# whichever process holds it. Both are removed on a clean exit.
+.monitor.lock
+.monitor.lock.who
 
 # LLM credentials live in ~/.tradingview_mcp/, never in the repo — this is a
 # belt-and-braces guard in case anyone relocates the config here.

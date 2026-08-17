@@ -188,16 +188,22 @@ def run_backtest(
     years = max(len(net) / bpy, 1e-9)
     ann_return = (equity.iloc[-1] ** (1 / years) - 1) if equity.iloc[-1] > 0 else -1.0
 
+    # Undefined denominators give NaN, not 0.0 — matching profit_factor below,
+    # and matching how the sort treats them (non-finite ranks last, see
+    # compare_strategies). The one that bites in practice is calmar: a model
+    # whose equity never drew down is the best result available, and scoring it
+    # 0.0 ranked it beneath every model that did lose money.
     vol = float(net.std(ddof=0) * math.sqrt(bpy))
     mean_ann = float(net.mean() * bpy)
-    sharpe = mean_ann / vol if vol > 1e-12 else 0.0
+    sharpe = mean_ann / vol if vol > 1e-12 else float("nan")
 
     downside = net[net < 0].std(ddof=0) * math.sqrt(bpy)
-    sortino = mean_ann / downside if downside and downside > 1e-12 else 0.0
+    sortino = (mean_ann / downside
+               if downside and downside > 1e-12 else float("nan"))
 
     dd = equity / equity.cummax() - 1.0
     max_dd = float(dd.min())
-    calmar = (ann_return / abs(max_dd)) if max_dd < -1e-9 else 0.0
+    calmar = (ann_return / abs(max_dd)) if max_dd < -1e-9 else float("nan")
 
     trades = _extract_trades(position, f, net, cost_rate)
     wins = [t.net_return for t in trades if t.net_return > 0]
@@ -364,19 +370,28 @@ def walk_forward(
     sharpes = [x["sharpe"] for x in valid]
     profitable = sum(1 for x in valid if x["return_pct"] > 0)
 
-    verdict = "insufficient data"
-    if len(valid) >= 2:
-        consistency = profitable / len(valid)
-        spread = float(np.std(sharpes)) if sharpes else 0.0
-        verdict = ("consistent across folds" if consistency >= 0.75 and spread < 1.0 else
-                   "mixed — performance is fold-dependent" if consistency >= 0.5 else
-                   "inconsistent — likely overfit or regime-specific")
+    # Fewer than two usable folds is a failed measurement, not a result. This
+    # used to fall through and report mean_sharpe 0.0 with no "error" key, so
+    # callers checking `if "error" in wf` treated it as success and displayed a
+    # fabricated zero — indistinguishable on screen from a genuine flat Sharpe.
+    if len(valid) < 2:
+        why = next((x["error"] for x in fold_results if x["error"]), "no trades in any fold")
+        return {"error": f"only {len(valid)} of {folds} folds produced a result "
+                         f"({why}) — not enough to judge consistency",
+                "strategy": strategy.name, "symbol": f.symbol, "interval": f.interval,
+                "folds": fold_results}
+
+    consistency = profitable / len(valid)
+    spread = float(np.std(sharpes))
+    verdict = ("consistent across folds" if consistency >= 0.75 and spread < 1.0 else
+               "mixed — performance is fold-dependent" if consistency >= 0.5 else
+               "inconsistent — likely overfit or regime-specific")
 
     return {
         "strategy": strategy.name, "symbol": f.symbol, "interval": f.interval,
         "folds": fold_results,
         "profitable_folds": f"{profitable}/{len(valid)}",
-        "mean_sharpe": round(float(np.mean(sharpes)), 3) if sharpes else 0.0,
-        "sharpe_std": round(float(np.std(sharpes)), 3) if sharpes else 0.0,
+        "mean_sharpe": round(float(np.mean(sharpes)), 3),
+        "sharpe_std": round(spread, 3),
         "verdict": verdict,
     }

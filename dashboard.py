@@ -377,6 +377,12 @@ class Pipeline:
     commentary: dict = field(default_factory=dict)
     timings: dict = field(default_factory=dict)
     failures: dict = field(default_factory=dict)
+    # Wall-clock at the moment this object finished computing. A fresh pass is
+    # rendered milliseconds later; a cached one carries an older stamp. This is
+    # deliberately not a session_state token — st.cache_resource is global while
+    # session_state is per-session, so a browser reload would clear the token
+    # and make a cached object look freshly computed.
+    computed_at: float = 0.0
 
 
 @st.cache_resource(show_spinner=False, max_entries=8)
@@ -486,7 +492,7 @@ def run_pipeline(symbol: str, interval: str, exchange: str, ticker: str,
                     consensus=con, risk=risk, confidence=conf, plan=plan,
                     score_path=path, backtest=bt or {}, top_result=top_result,
                     performance=performance, commentary=commentary or {},
-                    timings=timings, failures=failures)
+                    timings=timings, failures=failures, computed_at=time.time())
 
 
 # Cost assumptions are edited in the Backtest Lab tab but feed the shared
@@ -501,7 +507,6 @@ sort_by = st.session_state.get("bt_sort", "sharpe_ratio")
 
 _n_models = len(selected_models(tuple(sorted(chosen_cats)), include_proxies))
 _llm = load_config()
-_t_page = time.time()
 try:
     with st.spinner(f"Analysing {symbol} @ {interval} — {_n_models} models, "
                     f"full backtest{', commentary' if _llm.enabled else ''}…"):
@@ -521,7 +526,12 @@ except Exception as exc:
             "this interval — 1-minute data is typically kept for about 7 days.")
     st.stop()
 
-_cached = (time.time() - _t_page) < 0.5   # sub-second means it came from cache
+# Age of the result, not duration of the call. A freshly computed pipeline is
+# rendered a few milliseconds after it finished; anything older came from the
+# cache. Unlike timing the call, this does not depend on machine speed, and
+# unlike a session_state token it survives a browser reload.
+_age = time.time() - P.computed_at
+_cached = _age > 2.0
 
 # Unpack once; the tabs below read these rather than recomputing anything.
 df, meta, f = P.df, P.meta, P.features

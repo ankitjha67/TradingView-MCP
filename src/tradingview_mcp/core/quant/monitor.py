@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import os
 import sys
 import time
 import urllib.request
@@ -640,6 +641,98 @@ def _log(msg: str) -> None:
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+class SingleInstance:
+    """
+    An OS lock that stops a second monitor writing the same report files.
+
+    Every launch used to start another daemon. Five accumulated here over one
+    session, all polling the same chart and all overwriting tv_active_chart.json
+    a few hundred milliseconds apart — so the report on disk came from whichever
+    process happened to finish last, and killing one changed nothing visible.
+
+    The lock is advisory and held by the OS, so it dies with the process. A
+    crashed monitor leaves a stale file but not a stale lock, which is why this
+    does not try to validate a recorded PID: that check races, and an unrelated
+    process can inherit the number.
+    """
+
+    # Two files, on purpose. Windows locks a byte *range* and denies ordinary
+    # reads that overlap it — and because reads are buffered, a read of a
+    # 40-byte file still issues an 8 KB request that can collide with a lock
+    # placed well past the data. Storing the holder's identity in the file
+    # being locked therefore makes it unreadable exactly when it is wanted.
+    # So: `.lock` is locked and never read, `.lock.who` is read and never
+    # locked, and no byte-range subtlety can affect the message.
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.who_path = path.with_suffix(path.suffix + ".who")
+        self._fh = None
+
+    def _identity(self) -> str:
+        return (f"pid {os.getpid()} started "
+                f"{datetime.now(timezone.utc).isoformat(timespec='seconds')}")
+
+    def acquire(self) -> Optional[str]:
+        """None if we got it, else a description of who holds it."""
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._fh = open(self.path, "a+", encoding="utf-8")
+        except OSError as exc:
+            return f"could not open the lock file {self.path}: {exc}"
+
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+                self._fh.seek(0)
+                msvcrt.locking(self._fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            self._fh.close()
+            self._fh = None
+            try:
+                return self.who_path.read_text(encoding="utf-8").strip() \
+                    or "an unidentified process"
+            except OSError:
+                return "an unidentified process"
+
+        try:
+            self.who_path.write_text(self._identity(), encoding="utf-8")
+        except OSError:
+            pass          # the lock is what matters; the label is a courtesy
+        return None
+
+    def release(self) -> None:
+        if self._fh is None:
+            return
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+                self._fh.seek(0)
+                msvcrt.locking(self._fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        finally:
+            self._fh.close()
+            self._fh = None
+            for p in (self.who_path, self.path):
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.release()
+
+
 def run_monitor(cfg: Optional[MonitorConfig] = None,
                 on_snapshot: Optional[Callable[[MonitorSnapshot], None]] = None,
                 max_cycles: Optional[int] = None) -> None:
@@ -818,6 +911,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="Allow instrument leverage where available")
     ap.add_argument("--fast", action="store_true",
                     help="Skip the historical-consensus pass (stability scored neutral)")
+    ap.add_argument("--force", action="store_true",
+                    help="Start even if another monitor already owns this output "
+                         "directory. Both will overwrite the same report files.")
     a = ap.parse_args(argv)
 
     cfg = MonitorConfig(symbol=a.symbol, interval=a.interval,
@@ -838,7 +934,23 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(render_markdown(snap))
         return 0
 
-    run_monitor(cfg)
+    # One daemon per output directory. Without this every launch adds another
+    # process writing the same files, and the report you read is whichever one
+    # finished last.
+    lock = SingleInstance(cfg.output_dir / ".monitor.lock")
+    holder = lock.acquire()
+    if holder and not a.force:
+        print(f"A monitor is already running for {cfg.output_dir.resolve()} "
+              f"({holder}).\nStop it first, or pass --force to run a second one "
+              f"anyway, or use --out to write somewhere else.", file=sys.stderr)
+        return 1
+    if holder and a.force:
+        _log(f"WARNING: {holder} already owns this directory; both will overwrite "
+             f"the same report files.")
+    try:
+        run_monitor(cfg)
+    finally:
+        lock.release()
     return 0
 
 
