@@ -77,34 +77,46 @@ class Provider:
 # six are older or vision-language and sit in NVIDIA_ALSO_WORKS.
 #
 # Re-run any time with: python tools/verify_llm_models.py --provider nvidia
+# Ordered by a second measurement that matters more than raw latency: given the
+# real SYSTEM_PROMPT, does the model return the four sections it was asked for,
+# or does it return its own scratchpad? Counting characters cannot tell those
+# apart — nemotron-3.5-lightning looked like the best model on length (3.8k
+# characters, 7s) and is in fact unusable here: it emits `content` byte-identical
+# to `reasoning_content`, spends the whole token budget thinking and never
+# writes an answer. Timings below are wall-clock to a complete, structured reply.
 NVIDIA_REASONING = (
-    # Frontier reasoning — the strongest general models on the platform.
-    "nvidia/nemotron-3-ultra-550b-a55b",
-    "nvidia/nemotron-3-super-120b-a12b",
-    "z-ai/glm-5.2",
-    "minimaxai/minimax-m3",
-    "deepseek-ai/deepseek-v4-flash-0731",
-    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-    "stepfun-ai/step-3.7-flash",
-    "thinkingmachines/inkling",
-    # Fast reasoning — 30B-class mixtures, low seconds end to end.
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-    "nvidia/nemotron-3.5-lightning-30b-a3b",
-    "nvidia/nemotron-3-nano-30b-a3b",
-    "meta/muse-glimmer-30b",
-    "openai/gpt-oss-20b",
-    "google/gemma-4-31b-it",
-    "nvidia/nvidia-nemotron-nano-9b-v2",
+    "nvidia/nemotron-3-nano-30b-a3b",                 # 2.3s — fastest clean answer
+    "openai/gpt-oss-20b",                             # 5.3s
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  # 6.0s
+    "z-ai/glm-5.2",                                   # 7.4s
+    "nvidia/nemotron-3-super-120b-a12b",              # 8.8s
+    "nvidia/nvidia-nemotron-nano-9b-v2",              # 14.6s
+    "nvidia/nemotron-3-ultra-550b-a55b",              # 48.0s — deepest, slow
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",       # 62.2s
+    "meta/muse-glimmer-30b",                          # 100.2s
+    "minimaxai/minimax-m3",                           # 114.8s, highly variable
 )
 
-# Verified working, but deliberately not offered by default: superseded
-# generations, an experimental diffusion LM, and two vision-language models.
-# The VL models are the reason this list exists rather than a looser filter —
-# llama-3.1-nemotron-nano-vl-8b-v1 answered the sizing question correctly once
-# and returned 27 instead of 277 on a re-run. A model that reasons only
-# sometimes is worse in a trading dashboard than one that fails loudly.
-# All of these remain reachable through "Fetch models from API".
+# Reason correctly on a plain question but do not produce usable commentary at
+# the default token budget, so they are not offered for it:
+#
+#   nemotron-3.5-lightning-30b-a3b  content == reasoning_content, finish=length
+#   stepfun-ai/step-3.7-flash       content empty, finish=length
+#   thinkingmachines/inkling        content empty, finish=length
+#   google/gemma-4-31b-it           timed out past 150s on the full prompt
+#   deepseek-ai/deepseek-v4-flash   timed out past 150s on the full prompt
+#
+# Plus superseded generations and two vision-language models. The VL ones are
+# why this list is explicit rather than a looser filter: nemotron-nano-vl-8b-v1
+# answered a sizing question correctly once and returned 27 instead of 277 on a
+# re-run. A model that reasons only sometimes is worse here than one that fails
+# loudly. All remain reachable through "Fetch models from API".
 NVIDIA_ALSO_WORKS = (
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "stepfun-ai/step-3.7-flash",
+    "thinkingmachines/inkling",
+    "google/gemma-4-31b-it",
+    "deepseek-ai/deepseek-v4-flash-0731",
     "nvidia/llama-3.3-nemotron-super-49b-v1",
     "meta/llama-3.1-70b-instruct",
     "meta/llama-3.1-8b-instruct",
@@ -119,21 +131,22 @@ NVIDIA_ALSO_WORKS = (
 # This matters more than it looks: the dashboard's refresh is dominated by this
 # call, not by the 311 models, which finish in about three seconds.
 NVIDIA_MODEL_NOTES = {
-    "nvidia/nemotron-3-ultra-550b-a55b": "flagship · 550B MoE · deepest, slow",
-    "nvidia/nemotron-3-super-120b-a12b": "120B MoE · strong, mid-speed",
-    "z-ai/glm-5.2": "GLM 5.2 · accurate, mid-speed",
-    "minimaxai/minimax-m3": "MiniMax M3 · fastest here",
-    "deepseek-ai/deepseek-v4-flash-0731": "DeepSeek V4 Flash · slow on long prompts",
-    "nvidia/llama-3.3-nemotron-super-49b-v1.5": "reasoning-tuned 49B · thorough, slowest",
-    "stepfun-ai/step-3.7-flash": "Step 3.7 Flash · verbose",
-    "thinkingmachines/inkling": "Inkling · good detail per second",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": "explicit reasoning traces",
-    "nvidia/nemotron-3.5-lightning-30b-a3b": "fast and most complete — good default",
-    "nvidia/nemotron-3-nano-30b-a3b": "30B MoE",
-    "meta/muse-glimmer-30b": "Muse Glimmer 30B · slow",
-    "openai/gpt-oss-20b": "GPT-OSS 20B · open weights",
-    "google/gemma-4-31b-it": "Gemma 4 31B · slow on long prompts",
-    "nvidia/nvidia-nemotron-nano-9b-v2": "9B · cheapest that reasons well",
+    "nvidia/nemotron-3-nano-30b-a3b": "2s · fastest complete answer — default",
+    "openai/gpt-oss-20b": "5s · GPT-OSS 20B, open weights",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": "6s · explicit reasoning",
+    "z-ai/glm-5.2": "7s · GLM 5.2, most detailed of the fast ones",
+    "nvidia/nemotron-3-super-120b-a12b": "9s · 120B MoE, stronger",
+    "nvidia/nvidia-nemotron-nano-9b-v2": "15s · 9B, cheapest",
+    "nvidia/nemotron-3-ultra-550b-a55b": "48s · 550B flagship, deepest — too slow for 1m",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5": "62s · reasoning-tuned 49B",
+    "meta/muse-glimmer-30b": "100s · slow",
+    "minimaxai/minimax-m3": "115s · very variable latency",
+    # Not offered for commentary — see NVIDIA_ALSO_WORKS for why.
+    "nvidia/nemotron-3.5-lightning-30b-a3b": "returns only its scratchpad",
+    "stepfun-ai/step-3.7-flash": "returns empty at the default token budget",
+    "thinkingmachines/inkling": "returns empty at the default token budget",
+    "deepseek-ai/deepseek-v4-flash-0731": "times out on the full prompt",
+    "google/gemma-4-31b-it": "times out on the full prompt",
     "nvidia/llama-3.3-nemotron-super-49b-v1": "superseded by v1.5",
     "meta/llama-3.1-70b-instruct": "previous generation",
     "meta/llama-3.1-8b-instruct": "previous generation · small",
@@ -176,12 +189,11 @@ PROVIDERS: dict[str, Provider] = {
         models=("gemini-2.0-flash", "gemini-2.5-pro", "gemini-2.5-flash"),
         notes="Keys from aistudio.google.com/apikey — free tier available"),
     "nvidia": Provider(
-        # Default is the fast-and-complete one, not the largest. The flagship
-        # 550B is the better reasoner but takes ~3x as long and, at the default
-        # token budget, spends most of it thinking — it returned 150 characters
-        # of commentary where the 30B returned 3,800.
+        # Default is the fastest model that returns a complete, correctly
+        # structured answer — 2.3s against 48s for the 550B flagship, which
+        # reasons better but is too slow to finish inside a 1-minute bar.
         "nvidia", "NVIDIA NIM", OPENAI_STYLE, "https://integrate.api.nvidia.com/v1",
-        "nvidia/nemotron-3.5-lightning-30b-a3b", "NVIDIA_API_KEY",
+        "nvidia/nemotron-3-nano-30b-a3b", "NVIDIA_API_KEY",
         models=NVIDIA_REASONING, model_notes=NVIDIA_MODEL_NOTES,
         exclude=NVIDIA_WRONG_MODALITY,
         notes="Free credits at build.nvidia.com. These 15 reasoning models were each "
@@ -358,19 +370,26 @@ def _chat_openai(model, base, key, system, user, temp, max_tokens, timeout) -> s
         raise LLMError(f"Unexpected response shape: {json.dumps(data)[:400]}") from None
 
     text = (message.get("content") or "").strip()
+    thinking = (message.get("reasoning_content") or "").strip()
+    reason = choice.get("finish_reason")
+
+    # Some models mirror their scratchpad into `content`. When the two fields
+    # are identical the model never wrote an answer at all — it ran out of
+    # budget mid-thought. Returning that would put "Here's a thinking process:
+    # 1. Analyze the user's request" on the page as if it were the analysis.
+    if text and thinking and text == thinking:
+        raise LLMError(
+            f"{model} returned only its reasoning trace — it used all "
+            f"{max_tokens} tokens thinking and never wrote an answer. Raise "
+            "'Max tokens' in Settings, or choose a model that answers directly.")
     if text:
         return text
 
-    # A reasoning model spends its token budget on `reasoning_content` first and
-    # only then writes `content`. On a long prompt with a modest max_tokens it
-    # can use the whole allowance thinking and return content="" with
-    # finish_reason="length" — a blank panel, no error. The thinking is still
-    # the analysis, so surface it rather than showing nothing.
-    thinking = (message.get("reasoning_content") or "").strip()
+    # Content empty but reasoning present: the thinking IS the substance here,
+    # so show it rather than a blank panel.
     if thinking:
         return thinking
 
-    reason = choice.get("finish_reason")
     if reason == "length":
         raise LLMError(
             f"{model} used its entire {max_tokens}-token budget before writing an "
