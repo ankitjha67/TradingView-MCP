@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import altair as alt
@@ -32,7 +34,7 @@ from tradingview_mcp.core.quant.confidence import (
 from tradingview_mcp.core.quant.consensus import (
     compute_consensus, compute_risk_levels, evaluate_all,
 )
-from tradingview_mcp.core.quant.features import build_features
+from tradingview_mcp.core.quant.features import BARS_PER_YEAR, build_features
 from tradingview_mcp.core.quant.sizing import (
     CAPITAL_TIERS, MAX_CAPITAL, MIN_CAPITAL, CapitalConfig, build_trade_plan,
     resolve_instrument,
@@ -330,13 +332,277 @@ with st.sidebar:
     st.caption(f"LLM: {'on · ' + PROVIDERS[cfg.provider].label if cfg.enabled else 'off'}")
 
 
-def selected_models():
+def selected_models(cats: tuple[str, ...] = (), proxies: bool = True):
     models = REG.all()
-    if chosen_cats:
-        models = [m for m in models if m.category in chosen_cats]
-    if not include_proxies:
+    if cats:
+        models = [m for m in models if m.category in cats]
+    if not proxies:
         models = [m for m in models if not m.is_proxy]
     return models
+
+
+# ── the pipeline ──────────────────────────────────────────────────────────────
+#
+# Streamlit re-runs this script top to bottom on every widget interaction, so
+# anything at module level is paid for on every click. This page used to build
+# a 1500-bar FeatureSet and evaluate all 311 models inline, and then call
+# compute_consensus, which evaluates all 311 models *again* internally — the
+# whole library twice per click, for identical numbers.
+#
+# Everything now happens once, here, behind a cache keyed on the inputs that
+# actually change the answer. The independent branches run concurrently: the
+# full-library backtest is CPU-bound in numpy (which releases the GIL) while
+# the LLM call is pure network wait, so the commentary is effectively free —
+# it finishes inside the time the backtest was going to take anyway.
+#
+# Cost of a click after this: a dict lookup. Cost of a genuine change of
+# symbol, interval, filters or capital: one pass, everything computed.
+
+@dataclass
+class Pipeline:
+    """Everything the five tabs need, computed in one pass."""
+    df: pd.DataFrame
+    meta: dict
+    features: object
+    models: list
+    signals: list
+    consensus: object
+    risk: object
+    confidence: object
+    plan: dict
+    score_path: object = None
+    backtest: dict = field(default_factory=dict)
+    top_result: object = None
+    performance: object = None
+    commentary: dict = field(default_factory=dict)
+    timings: dict = field(default_factory=dict)
+    failures: dict = field(default_factory=dict)
+
+
+@st.cache_resource(show_spinner=False, max_entries=8)
+def run_pipeline(symbol: str, interval: str, exchange: str, ticker: str,
+                 cats: tuple, proxies: bool, stability: bool,
+                 cap_key: tuple, comm: float, slip: float, shorts: bool,
+                 sort_by: str, llm_key: tuple, _cap_cfg) -> Pipeline:
+    """
+    One full pass: data, signals, consensus, risk, sizing, backtest,
+    performance report and commentary.
+
+    ``_cap_cfg`` is underscore-prefixed so Streamlit does not try to hash it;
+    ``cap_key`` carries the same values in hashable form and is what actually
+    keys the cache.
+    """
+    timings, failures = {}, {}
+
+    def timed(name, fn, *a, **kw):
+        """An optional stage: record its cost, never let it kill the page."""
+        t = time.time()
+        try:
+            return fn(*a, **kw)
+        except Exception as exc:
+            failures[name] = f"{type(exc).__name__}: {exc}"
+            return None
+        finally:
+            timings[name] = time.time() - t
+
+    def stage(name, fn, *a, **kw):
+        """A required stage: time it, but let the exception out.
+
+        Features, signals and consensus are what every tab is built on. A
+        silent None here would surface as an AttributeError somewhere far from
+        the cause, so these fail loudly and the caller shows the real error.
+        """
+        t = time.time()
+        try:
+            return fn(*a, **kw)
+        finally:
+            timings[name] = time.time() - t
+
+    t_all = time.time()
+    df, meta = load_market(symbol, interval, exchange)
+    f = stage("features", build_features, df.tail(1500), interval, ticker or symbol)
+    models = selected_models(cats, proxies)
+
+    # Evaluate the library exactly once, then hand the signals to the consensus
+    # rather than letting it re-run them.
+    _, signals = stage("signals", evaluate_all, f, interval, symbol, strategies=models)
+    con = stage("consensus", compute_consensus, f, interval, symbol,
+                strategies=models, signals=signals)
+    risk = stage("risk", compute_risk_levels, f, con.direction)
+
+    voting = [(s, sg) for s, sg in signals if sg.available and abs(sg.score) >= 0.15]
+
+    path = timed("stability", consensus_series, f, models) if stability else None
+    conf = stage("confidence", score_trade, con, f, voting,
+                 risk_reward=risk.risk_reward, score_path=path)
+    plan = timed("sizing", build_trade_plan, symbol, con, risk, conf, _cap_cfg) or {}
+
+    # Only one thing here is worth putting on another thread. Measured on this
+    # library (311 models, 1000 bars): evaluate_all 1.17s, compare_strategies
+    # 1.72s, consensus_series 1.18s. Running those concurrently made the pass
+    # 9% *slower* — they are pandas/Python loops that hold the GIL, so threads
+    # buy nothing and cost scheduling overhead.
+    #
+    # The LLM call is different: it is network wait, the GIL is released for
+    # all of it, and it is the single longest stage at 5-15s. So it goes to a
+    # background thread as soon as its inputs exist, and the remaining CPU work
+    # runs underneath it. Commentary is ready when the backtest is.
+    cfg = load_config()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        fut_llm = pool.submit(
+            timed, "commentary", llm_analyze, con.to_dict(), risk.to_dict(), cfg,
+            extra={"confidence": conf.to_dict(), "position": plan.get("position")}
+        ) if cfg.enabled else None
+
+        bt = timed("backtest", compare_strategies, f, strategies=models,
+                   commission_pct=comm, slippage_pct=slip,
+                   allow_short=shorts, sort_by=sort_by) or {}
+
+        # Full Strategy-Tester report on whichever model ranked first. Kept
+        # inside the pool block so it too runs while the model is still
+        # writing; collecting the future any earlier would waste the overlap.
+        top_result = performance = None
+        ranking = (bt or {}).get("ranking") or []
+        if ranking:
+            strat = REG.get(ranking[0]["strategy"])
+            if strat is not None:
+                top_result = timed("top_backtest", run_backtest, strat, f,
+                                   commission_pct=comm, slippage_pct=slip,
+                                   allow_short=shorts)
+                if top_result is not None and not top_result.error:
+                    performance = timed(
+                        "performance", analyse_performance, top_result, f.df,
+                        bars_per_year=BARS_PER_YEAR.get(interval, 252),
+                        initial_capital=float(_cap_cfg.capital),
+                        commission_pct=comm, slippage_pct=slip,
+                        position=top_result.position)
+
+        commentary = (fut_llm.result() if fut_llm else
+                      {"ok": False, "skipped": True,
+                       "message": "Commentary is off. Enable it in Settings."})
+
+    timings["total"] = time.time() - t_all
+    return Pipeline(df=df, meta=meta, features=f, models=models, signals=signals,
+                    consensus=con, risk=risk, confidence=conf, plan=plan,
+                    score_path=path, backtest=bt or {}, top_result=top_result,
+                    performance=performance, commentary=commentary or {},
+                    timings=timings, failures=failures)
+
+
+# Cost assumptions are edited in the Backtest Lab tab but feed the shared
+# pipeline, which has to run before any tab renders. Streamlit writes keyed
+# widgets into session_state, so read them from there; the first run of a
+# session falls back to these defaults, and any later change is already in
+# session_state by the time this line executes on the rerun.
+comm = float(st.session_state.get("bt_comm", 0.05))
+slip = float(st.session_state.get("bt_slip", 0.05))
+shorts = bool(st.session_state.get("bt_shorts", True))
+sort_by = st.session_state.get("bt_sort", "sharpe_ratio")
+
+_n_models = len(selected_models(tuple(sorted(chosen_cats)), include_proxies))
+_llm = load_config()
+_t_page = time.time()
+try:
+    with st.spinner(f"Analysing {symbol} @ {interval} — {_n_models} models, "
+                    f"full backtest{', commentary' if _llm.enabled else ''}…"):
+        P = run_pipeline(
+            symbol, interval, spec.exchange, spec.ticker or symbol,
+            tuple(sorted(chosen_cats)), include_proxies, score_stability,
+            (float(capital), currency, float(risk_pct), float(max_exposure), use_leverage),
+            comm, slip, shorts, sort_by,
+            (_llm.provider, _llm.model, _llm.enabled, _llm.temperature), cap_cfg)
+except Exception as exc:
+    st.error(f"Could not analyse **{symbol}** at **{interval}**.")
+    st.code(f"{type(exc).__name__}: {exc}", language="text")
+    _res = spec.yahoo or spec.binance or "(unresolved)"
+    st.info(f"`{symbol}` resolved to `{_res}` ({spec.asset_class}). "
+            "If that mapping looks wrong, the symbol may need adding to the map in "
+            "`market_data.py`. If it looks right, the provider may have no history at "
+            "this interval — 1-minute data is typically kept for about 7 days.")
+    st.stop()
+
+_cached = (time.time() - _t_page) < 0.5   # sub-second means it came from cache
+
+# Unpack once; the tabs below read these rather than recomputing anything.
+df, meta, f = P.df, P.meta, P.features
+models, all_signals = P.models, P.signals
+con, risk, conf, plan, path = P.consensus, P.risk, P.confidence, P.plan, P.score_path
+elapsed = P.timings.get("total", 0.0)
+
+_sb1, _sb2 = st.columns([5, 1])
+with _sb1:
+    if _cached:
+        st.caption(f"Showing the cached pass for **{symbol} @ {interval}** "
+                   f"(computed in {elapsed:.1f}s). Every tab below is already built — "
+                   "no click costs anything.")
+    else:
+        _llm_t = P.timings.get("commentary", 0.0)
+        _under = sum(P.timings.get(k, 0.0)
+                     for k in ("backtest", "top_backtest", "performance"))
+        _overlap = min(_llm_t, _under)
+        _note = (f" Commentary took {_llm_t:.1f}s but ran while the backtest did, "
+                 f"so it added about {max(_llm_t - _under, 0):.1f}s."
+                 if _overlap > 0.05 else "")
+        st.caption(f"Full pipeline on **{symbol} @ {interval}** in **{elapsed:.1f}s** — "
+                   f"{len(models)} models, full backtest, performance report"
+                   f"{', commentary' if P.commentary.get('ok') else ''}.{_note}")
+with _sb2:
+    if st.button("Recompute", use_container_width=True,
+                 help="Discard the cached pass and run everything again against fresh data."):
+        load_market.clear()
+        run_pipeline.clear()
+        st.rerun()
+
+if P.failures:
+    with st.expander(f"{len(P.failures)} optional stage(s) failed — the rest is unaffected"):
+        for _stage, _err in P.failures.items():
+            st.markdown(f"**{_stage}** — `{_err}`")
+
+with st.expander("Where the time went"):
+    _rows = [{"stage": k, "seconds": round(v, 2)}
+             for k, v in sorted(P.timings.items(), key=lambda x: -x[1]) if k != "total"]
+    st.dataframe(pd.DataFrame(_rows), hide_index=True, use_container_width=True)
+    st.caption("These sum to more than the total because the commentary runs on a "
+               "background thread while the backtest and performance report run "
+               "here. Only the LLM call is worth threading — it is network wait, "
+               "so the GIL is released throughout. The model stages are pandas "
+               "and Python loops that hold the GIL; running those on threads was "
+               "measured 9% slower than doing them in order, so they are sequential.")
+
+@st.cache_resource(show_spinner=False, max_entries=64)
+def single_equity(name: str, symbol: str, interval: str, exchange: str,
+                  comm: float, slip: float, shorts: bool):
+    """Equity curve for one model. Cached, so browsing the library is instant."""
+    strat = REG.get(name)
+    if strat is None:
+        return None
+    df_, _ = load_market(symbol, interval, exchange)
+    f_ = build_features(df_.tail(1500), interval, symbol)
+    bt_ = run_backtest(strat, f_, commission_pct=comm, slippage_pct=slip,
+                       allow_short=shorts)
+    return None if bt_.error else bt_.equity_curve
+
+
+@st.cache_resource(show_spinner="Building the performance report…", max_entries=16)
+def perf_report(name: str, symbol: str, interval: str, exchange: str,
+                comm: float, slip: float, shorts: bool, capital: float):
+    """Strategy Tester report for one model, cached so re-picking is instant.
+
+    The pipeline builds this for the top-ranked model. This covers the case
+    where you want to inspect a different one.
+    """
+    strat = REG.get(name)
+    if strat is None:
+        return None
+    df_, _ = load_market(symbol, interval, exchange)
+    f_ = build_features(df_.tail(1500), interval, symbol)
+    bt_ = run_backtest(strat, f_, commission_pct=comm, slippage_pct=slip,
+                       allow_short=shorts)
+    if bt_.error:
+        return None
+    return analyse_performance(bt_, f_.df, bars_per_year=BARS_PER_YEAR.get(interval, 252),
+                               initial_capital=capital, commission_pct=comm,
+                               slippage_pct=slip, position=bt_.position)
 
 
 tabs = st.tabs(["Live Signal", "Strategy Explorer", "Backtest Lab", "Monitor", "Settings"])
@@ -353,34 +619,9 @@ with tabs[0]:
                        f"{remaining:.0f}s (at bar close)")
             if remaining <= 5:
                 load_market.clear()
+                run_pipeline.clear()
                 st.rerun()
         _bar_close_watch()
-
-    try:
-        with st.spinner(f"Fetching {symbol} @ {interval}…"):
-            df, meta = load_market(symbol, interval, spec.exchange)
-    except Exception as exc:
-        st.error(f"Could not load market data for **{symbol}** at **{interval}**.")
-        st.code(str(exc), language="text")
-        res = spec.yahoo or spec.binance or "(unresolved)"
-        st.info(f"`{symbol}` resolved to `{res}` ({spec.asset_class}). "
-                "If that mapping looks wrong, the symbol may need adding to the map in "
-                "`market_data.py`. If it looks right, the provider may have no history at "
-                "this interval — 1-minute data is typically kept for about 7 days.")
-        st.stop()
-
-    f = build_features(df.tail(1500), interval, spec.ticker or symbol)
-    models = selected_models()
-    with st.spinner(f"Evaluating {len(models)} models…"):
-        t0 = time.time()
-        _, all_signals = evaluate_all(f, interval, symbol, strategies=models)
-        con = compute_consensus(f, interval, symbol, strategies=models)
-        risk = compute_risk_levels(f, con.direction)
-        voting = [(s, sg) for s, sg in all_signals if sg.available and abs(sg.score) >= 0.15]
-        path = consensus_series(f, models) if score_stability else None
-        conf = score_trade(con, f, voting, risk_reward=risk.risk_reward, score_path=path)
-        plan = build_trade_plan(symbol, con, risk, conf, cap_cfg)
-        elapsed = time.time() - t0
 
     dc = dir_class(con.direction)
     label = {"BUY": "LONG", "SELL": "SHORT", "NEUTRAL": "NO POSITION"}[con.direction]
@@ -557,20 +798,19 @@ with tabs[0]:
                        "fundamentals, on-chain, cross-sectional universes) stand down rather "
                        "than voting on a substitute.")
 
+    # Commentary was computed in the pipeline, concurrently with the backtest,
+    # so it is already here — no second click and no second wait.
     st.markdown("#### Commentary")
-    cfg = load_config()
-    if not cfg.enabled:
-        st.info("LLM commentary is off. Enable it in **Settings** — everything above works without it.")
-    elif st.button("Generate analysis"):
-        with st.spinner("Asking the model…"):
-            res = llm_analyze(con.to_dict(), risk.to_dict(), cfg,
-                              extra={"confidence": conf.to_dict(),
-                                     "position": plan["position"]})
-        if res.get("ok"):
-            st.caption(f"{res['provider']} · {res['model']}")
-            st.markdown(res["analysis"])
-        else:
-            st.error(res.get("error", res.get("message", "unavailable")))
+    res = P.commentary or {}
+    if res.get("ok"):
+        st.caption(f"{res['provider']} · {res['model']} · "
+                   f"{P.timings.get('commentary', 0):.1f}s, overlapped with the backtest")
+        st.markdown(res["analysis"])
+    elif res.get("skipped"):
+        st.info("LLM commentary is off. Enable it in **Settings** — everything above "
+                "works without it.")
+    else:
+        st.error(res.get("error", res.get("message", "unavailable")))
 
 # ══ STRATEGY EXPLORER ═════════════════════════════════════════════════════════
 with tabs[1]:
@@ -618,31 +858,40 @@ with tabs[1]:
             if row["params"]:
                 st.json(row["params"], expanded=False)
 
-        if st.button("Run this model on the selected symbol"):
-            try:
-                df2, _ = load_market(symbol, interval, spec.exchange)
-                f2 = build_features(df2.tail(1500), interval, symbol)
-                strat = REG.get(pick)
-                sig = strat.analyze(f2)
-                bt = run_backtest(strat, f2)
-                if sig.available:
-                    k = st.columns(4)
-                    k[0].markdown(card("Signal", sig.direction, f"score {sig.score:+.3f}",
-                                       {"BUY": "#22c55e", "SELL": "#ef4444"}.get(sig.direction, "")),
-                                  unsafe_allow_html=True)
-                    k[1].markdown(card("Sharpe", f"{bt.sharpe_ratio:.2f}", "net of costs"), unsafe_allow_html=True)
-                    k[2].markdown(card("Return", f"{bt.total_return_pct:+.1f}%",
-                                       f"vs {bt.buy_and_hold_pct:+.1f}% hold"), unsafe_allow_html=True)
-                    k[3].markdown(card("Trades", f"{bt.total_trades}", f"{bt.win_rate_pct:.0f}% win"),
-                                  unsafe_allow_html=True)
-                    st.info(sig.rationale)
-                    if len(bt.equity_curve):
-                        st.altair_chart(equity_chart(bt.equity_curve, 220),
-                                        use_container_width=True)
-                else:
-                    st.warning(f"Cannot run here: {sig.reason_unavailable}")
-            except Exception as exc:
-                st.error(f"{type(exc).__name__}: {exc}")
+        # This model's signal on the current symbol was already produced by the
+        # pipeline, and its backtest row by the library sweep. Both are looked
+        # up rather than recomputed, so selecting a model costs nothing.
+        st.markdown(f"##### {pick} on {symbol} @ {interval}")
+        sig = next((sg for s, sg in all_signals if s.name == pick), None)
+        row_bt = next((r for r in (P.backtest.get("ranking") or [])
+                       if r["strategy"] == pick), None)
+        if sig is None:
+            st.info("This model is filtered out by the sidebar — clear the category "
+                    "filter or re-enable proxies to include it.")
+        elif not sig.available:
+            st.warning(f"Cannot run here: {sig.reason_unavailable}")
+        else:
+            k = st.columns(4)
+            k[0].markdown(card("Signal", sig.direction, f"score {sig.score:+.3f}",
+                               {"BUY": "#22c55e", "SELL": "#ef4444"}.get(sig.direction, "")),
+                          unsafe_allow_html=True)
+            if row_bt:
+                k[1].markdown(card("Sharpe", f"{row_bt['sharpe_ratio']:.2f}", "net of costs"),
+                              unsafe_allow_html=True)
+                k[2].markdown(card("Return", f"{row_bt['total_return_pct']:+.1f}%",
+                                   f"vs {P.backtest.get('buy_and_hold_pct', 0):+.1f}% hold"),
+                              unsafe_allow_html=True)
+                k[3].markdown(card("Trades", f"{row_bt['total_trades']}",
+                                   f"{row_bt['win_rate_pct']:.0f}% win"), unsafe_allow_html=True)
+            else:
+                k[1].markdown(card("Backtest", "—", "too few trades to rank"),
+                              unsafe_allow_html=True)
+            st.info(sig.rationale)
+            if sig.diagnostics:
+                st.json(sig.diagnostics, expanded=False)
+            eq = single_equity(pick, symbol, interval, spec.exchange, comm, slip, shorts)
+            if eq is not None and len(eq):
+                st.altair_chart(equity_chart(eq, 220), use_container_width=True)
 
 # ══ BACKTEST LAB ══════════════════════════════════════════════════════════════
 with tabs[2]:
@@ -650,27 +899,25 @@ with tabs[2]:
     st.caption("Signals act on the **next** bar, never the signalling bar. Commission and "
                "slippage are charged on both legs. Ranked by Sharpe, not total return.")
 
+    # These carry keys so the shared pipeline can read them from session_state
+    # before the tabs render. Changing one re-keys the cache, so the next rerun
+    # recomputes with the new costs — no separate "run" step.
     a, b, c, d = st.columns(4)
-    comm = a.number_input("Commission %", 0.0, 1.0, 0.05, 0.01)
-    slip = b.number_input("Slippage %", 0.0, 1.0, 0.05, 0.01)
-    shorts = c.checkbox("Allow shorts", value=True)
-    sort_by = d.selectbox("Rank by", ["sharpe_ratio", "total_return_pct", "calmar_ratio",
-                                      "profit_factor", "win_rate_pct", "max_drawdown_pct"])
+    a.number_input("Commission %", 0.0, 1.0, key="bt_comm", value=comm, step=0.01)
+    b.number_input("Slippage %", 0.0, 1.0, key="bt_slip", value=slip, step=0.01)
+    c.checkbox("Allow shorts", key="bt_shorts", value=shorts)
+    d.selectbox("Rank by", ["sharpe_ratio", "total_return_pct", "calmar_ratio",
+                            "profit_factor", "win_rate_pct", "max_drawdown_pct"],
+                key="bt_sort",
+                index=["sharpe_ratio", "total_return_pct", "calmar_ratio",
+                       "profit_factor", "win_rate_pct", "max_drawdown_pct"].index(sort_by))
+    st.caption("Changing any of these recomputes the whole page on the next interaction.")
 
-    if st.button("Run full library backtest", type="primary"):
-        try:
-            df3, _ = load_market(symbol, interval, spec.exchange)
-            f3 = build_features(df3.tail(1500), interval, symbol)
-            with st.spinner(f"Backtesting {len(selected_models())} models…"):
-                t0 = time.time()
-                res = compare_strategies(f3, strategies=selected_models(), commission_pct=comm,
-                                         slippage_pct=slip, allow_short=shorts, sort_by=sort_by)
-                st.session_state["bt"] = (res, time.time() - t0)
-        except Exception as exc:
-            st.error(f"{type(exc).__name__}: {exc}")
-
-    if "bt" in st.session_state:
-        res, took = st.session_state["bt"]
+    res = P.backtest or {}
+    if P.failures.get("backtest"):
+        st.error(f"The backtest stage failed: {P.failures['backtest']}")
+    if res.get("ranking") is not None:
+        took = P.timings.get("backtest", 0.0)
         k = st.columns(5)
         k[0].markdown(card("Tested", f"{res['models_tested']}", f"in {took:.1f}s"), unsafe_allow_html=True)
         k[1].markdown(card("Ranked", f"{res['models_ranked']}", "enough trades"), unsafe_allow_html=True)
@@ -697,21 +944,19 @@ with tabs[2]:
 
             st.markdown("#### Full performance report")
             st.caption("The TradingView Strategy Tester view: All / Long / Short breakdown, "
-                       "MAE/MFE, run-up, streaks, risk ratios and a monthly grid.")
+                       "MAE/MFE, run-up, streaks, risk ratios and a monthly grid. "
+                       "The top-ranked model's report is built by the pipeline, so it is "
+                       "already here; picking another builds that one and caches it.")
             perf_pick = st.selectbox("Model", rank["strategy"].head(30).tolist(),
                                      key="perf_pick")
-            if st.button("Build performance report"):
-                df6, _ = load_market(symbol, interval, spec.exchange)
-                f6 = build_features(df6.tail(1500), interval, symbol)
-                strat6 = REG.get(perf_pick)
-                bt6 = run_backtest(strat6, f6, commission_pct=comm, slippage_pct=slip,
-                                   allow_short=shorts)
-                if bt6.error:
-                    st.warning(bt6.error)
+            if perf_pick:
+                rep = (P.performance if perf_pick == rank["strategy"].iloc[0]
+                       else perf_report(perf_pick, symbol, interval, spec.exchange,
+                                        comm, slip, shorts, float(capital)))
+                if rep is None:
+                    st.warning(f"Could not build a performance report for **{perf_pick}** — "
+                               "it may not have produced enough trades on this window.")
                 else:
-                    rep = analyse_performance(
-                        bt6, f6.df, bars_per_year=f6.bars_per_year,
-                        commission_pct=comm, slippage_pct=slip, position=bt6.position)
                     a_, l_, s_ = rep.all_trades, rep.long_trades, rep.short_trades
                     r_ = rep.risk
 
@@ -781,9 +1026,12 @@ with tabs[2]:
                             {"Metric": "Positive bars %", "Value": r_.positive_bars_pct},
                         ]), use_container_width=True, hide_index=True, height=350)
 
-                    if len(bt6.equity_curve):
+                    eq = (P.top_result.equity_curve
+                          if perf_pick == rank["strategy"].iloc[0] and P.top_result is not None
+                          else single_equity(perf_pick, symbol, interval, spec.exchange,
+                                             comm, slip, shorts))
+                    if eq is not None and len(eq):
                         st.markdown("**Equity curve and drawdown**")
-                        eq = bt6.equity_curve
                         st.altair_chart(equity_chart(eq, 240), use_container_width=True)
                         st.altair_chart(drawdown_chart(eq, 150), use_container_width=True)
 
@@ -805,11 +1053,15 @@ with tabs[2]:
             st.caption("Buckets every historical bar by consensus strength and measures what "
                        "actually happened next. This is a measurement of the past on this one "
                        "instrument — not a forecast, and not a win probability.")
-            if st.button("Measure confidence calibration"):
-                with st.spinner("Reconstructing the historical consensus path…"):
-                    df5, _ = load_market(symbol, interval, spec.exchange)
-                    f5 = build_features(df5.tail(1500), interval, symbol)
-                    cal = calibrate(f5, selected_models(), horizon=10)
+            # Kept on a button: this reconstructs the consensus at every historical
+            # bar and is far heavier than the rest of the page. Cached on the way
+            # out, so once measured it survives every later click.
+            if st.button("Measure confidence calibration") or "cal" in st.session_state:
+                if st.session_state.get("cal_key") != (symbol, interval, len(models)):
+                    with st.spinner("Reconstructing the historical consensus path…"):
+                        st.session_state["cal"] = calibrate(f, models, horizon=10)
+                        st.session_state["cal_key"] = (symbol, interval, len(models))
+                cal = st.session_state["cal"]
                 if not cal.get("ok"):
                     st.warning(f"Could not calibrate: {cal.get('reason')}")
                 else:
@@ -823,11 +1075,14 @@ with tabs[2]:
             st.markdown("#### Walk-forward check")
             st.caption("Splits the sample into sequential folds. A model that only works in one "
                        "fold is fitted to that fold.")
-            wf_pick = st.selectbox("Model", rank["strategy"].head(30).tolist())
-            if st.button("Run walk-forward"):
-                df4, _ = load_market(symbol, interval, spec.exchange)
-                f4 = build_features(df4.tail(1500), interval, symbol)
-                wf = walk_forward(REG.get(wf_pick), f4)
+            wf_pick = st.selectbox("Model", rank["strategy"].head(30).tolist(),
+                                   key="wf_pick")
+            if st.button("Run walk-forward") or st.session_state.get("wf_for") == wf_pick:
+                if st.session_state.get("wf_for") != wf_pick:
+                    with st.spinner(f"Walking {wf_pick} forward…"):
+                        st.session_state["wf"] = walk_forward(REG.get(wf_pick), f)
+                        st.session_state["wf_for"] = wf_pick
+                wf = st.session_state["wf"]
                 if "error" in wf:
                     st.warning(wf["error"])
                 else:

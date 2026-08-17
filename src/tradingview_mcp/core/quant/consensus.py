@@ -200,10 +200,23 @@ def compute_consensus(
     available_feeds: Iterable[str] = (),
     meta: Optional[dict] = None,
     top_n: int = 8,
+    signals: Optional[Sequence[tuple[BaseStrategy, Signal]]] = None,
 ) -> ConsensusResult:
-    """Aggregate every model's opinion into one auditable view."""
-    f, all_signals = evaluate_all(data, interval, symbol, registry, strategies,
-                                  available_feeds, meta)
+    """
+    Aggregate every model's opinion into one auditable view.
+
+    Pass ``signals`` from a previous ``evaluate_all`` to reuse them. A caller
+    that wants both the individual signals and the consensus would otherwise
+    run the whole library twice — the single most expensive thing this module
+    does — for identical results.
+    """
+    if signals is None:
+        f, all_signals = evaluate_all(data, interval, symbol, registry, strategies,
+                                      available_feeds, meta)
+    else:
+        all_signals = list(signals)
+        f = build_features(data, interval, symbol) \
+            if isinstance(data, pd.DataFrame) else data
 
     available = [(s, sig) for s, sig in all_signals if sig.available]
     voting = [(s, sig) for s, sig in available if abs(sig.score) >= VOTE_BAND]

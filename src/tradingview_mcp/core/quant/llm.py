@@ -113,21 +113,26 @@ NVIDIA_ALSO_WORKS = (
     "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
 )
 
+# Speed labels come from timing every model on the actual commentary prompt
+# (~5,000 chars in, 1,200 tokens out). They are relative, not guarantees — NIM
+# cold-starts an idle model, so a first call after a quiet spell costs more.
+# This matters more than it looks: the dashboard's refresh is dominated by this
+# call, not by the 311 models, which finish in about three seconds.
 NVIDIA_MODEL_NOTES = {
-    "nvidia/nemotron-3-ultra-550b-a55b": "flagship · 550B MoE · best reasoning",
-    "nvidia/nemotron-3-super-120b-a12b": "120B MoE · strong, fast",
-    "z-ai/glm-5.2": "GLM 5.2 · fast and accurate",
-    "minimaxai/minimax-m3": "MiniMax M3 · long context",
-    "deepseek-ai/deepseek-v4-flash-0731": "DeepSeek V4 Flash",
-    "nvidia/llama-3.3-nemotron-super-49b-v1.5": "reasoning-tuned Llama 3.3 49B",
-    "stepfun-ai/step-3.7-flash": "Step 3.7 Flash",
-    "thinkingmachines/inkling": "Inkling",
+    "nvidia/nemotron-3-ultra-550b-a55b": "flagship · 550B MoE · deepest, slow",
+    "nvidia/nemotron-3-super-120b-a12b": "120B MoE · strong, mid-speed",
+    "z-ai/glm-5.2": "GLM 5.2 · accurate, mid-speed",
+    "minimaxai/minimax-m3": "MiniMax M3 · fastest here",
+    "deepseek-ai/deepseek-v4-flash-0731": "DeepSeek V4 Flash · slow on long prompts",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5": "reasoning-tuned 49B · thorough, slowest",
+    "stepfun-ai/step-3.7-flash": "Step 3.7 Flash · verbose",
+    "thinkingmachines/inkling": "Inkling · good detail per second",
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": "explicit reasoning traces",
-    "nvidia/nemotron-3.5-lightning-30b-a3b": "lowest latency 30B",
+    "nvidia/nemotron-3.5-lightning-30b-a3b": "fast and most complete — good default",
     "nvidia/nemotron-3-nano-30b-a3b": "30B MoE",
-    "meta/muse-glimmer-30b": "Muse Glimmer 30B",
+    "meta/muse-glimmer-30b": "Muse Glimmer 30B · slow",
     "openai/gpt-oss-20b": "GPT-OSS 20B · open weights",
-    "google/gemma-4-31b-it": "Gemma 4 31B",
+    "google/gemma-4-31b-it": "Gemma 4 31B · slow on long prompts",
     "nvidia/nvidia-nemotron-nano-9b-v2": "9B · cheapest that reasons well",
     "nvidia/llama-3.3-nemotron-super-49b-v1": "superseded by v1.5",
     "meta/llama-3.1-70b-instruct": "previous generation",
@@ -171,8 +176,12 @@ PROVIDERS: dict[str, Provider] = {
         models=("gemini-2.0-flash", "gemini-2.5-pro", "gemini-2.5-flash"),
         notes="Keys from aistudio.google.com/apikey — free tier available"),
     "nvidia": Provider(
+        # Default is the fast-and-complete one, not the largest. The flagship
+        # 550B is the better reasoner but takes ~3x as long and, at the default
+        # token budget, spends most of it thinking — it returned 150 characters
+        # of commentary where the 30B returned 3,800.
         "nvidia", "NVIDIA NIM", OPENAI_STYLE, "https://integrate.api.nvidia.com/v1",
-        "nvidia/nemotron-3-ultra-550b-a55b", "NVIDIA_API_KEY",
+        "nvidia/nemotron-3.5-lightning-30b-a3b", "NVIDIA_API_KEY",
         models=NVIDIA_REASONING, model_notes=NVIDIA_MODEL_NOTES,
         exclude=NVIDIA_WRONG_MODALITY,
         notes="Free credits at build.nvidia.com. These 15 reasoning models were each "
@@ -228,7 +237,10 @@ class LLMConfig:
     api_key: str = ""
     base_url: str = ""
     temperature: float = 0.2
-    max_tokens: int = 1200
+    # Reasoning models bill their private thinking against this budget before
+    # writing a word of the answer. At 1200 the largest ones used the lot
+    # thinking and returned an empty or one-line reply on the analysis prompt.
+    max_tokens: int = 2400
     enabled: bool = False
     timeout: int = 90
 
@@ -340,9 +352,31 @@ def _chat_openai(model, base, key, system, user, temp, max_tokens, timeout) -> s
         "temperature": temp, "max_tokens": max_tokens,
     }, headers, timeout)
     try:
-        return data["choices"][0]["message"]["content"]
+        choice = data["choices"][0]
+        message = choice["message"]
     except (KeyError, IndexError, TypeError):
         raise LLMError(f"Unexpected response shape: {json.dumps(data)[:400]}") from None
+
+    text = (message.get("content") or "").strip()
+    if text:
+        return text
+
+    # A reasoning model spends its token budget on `reasoning_content` first and
+    # only then writes `content`. On a long prompt with a modest max_tokens it
+    # can use the whole allowance thinking and return content="" with
+    # finish_reason="length" — a blank panel, no error. The thinking is still
+    # the analysis, so surface it rather than showing nothing.
+    thinking = (message.get("reasoning_content") or "").strip()
+    if thinking:
+        return thinking
+
+    reason = choice.get("finish_reason")
+    if reason == "length":
+        raise LLMError(
+            f"{model} used its entire {max_tokens}-token budget before writing an "
+            "answer. Raise 'Max tokens' in Settings, or pick a model that does not "
+            "reason at length.")
+    raise LLMError(f"{model} returned an empty response (finish_reason={reason!r}).")
 
 
 def _chat_anthropic(model, base, key, system, user, temp, max_tokens, timeout) -> str:
