@@ -266,14 +266,22 @@ def _run_donchian(candles, period=20, sl_atr=2.0, **_):
     atr    = calc_atr(highs, lows, closes, 14)
     trades, position = [], None
     for i in range(1, len(candles)):
-        if dc["upper"][i - 1] is None or dc["lower"][i - 1] is None or atr[i] is None:
+        # ATR is deliberately NOT part of this guard. Here it only powers a
+        # *trailing* stop layered on top of the channel exit, which stands on
+        # its own — so requiring a 14-bar ATR warmup would silently refuse
+        # every signal on a series shorter than that, even when the Donchian
+        # window itself is satisfied. On real histories ATR is available from
+        # bar 14 onward and behaviour is unchanged.
+        if dc["upper"][i - 1] is None or dc["lower"][i - 1] is None:
             continue
         price, date = candles[i]["close"], candles[i]["date"]
-        
+        a = atr[i]
+
         if position is not None:
-            # Trailing stop
-            position["sl"] = max(position["sl"], price - sl_atr * atr[i])
-            if candles[i]["low"] <= position["sl"]:
+            if a is not None:
+                trail = price - sl_atr * a
+                position["sl"] = trail if position["sl"] is None else max(position["sl"], trail)
+            if position["sl"] is not None and candles[i]["low"] <= position["sl"]:
                 trades.append({**position, "exit_date": date, "exit_price": position["sl"]})
                 position = None
             elif lows[i] < dc["lower"][i - 1]:
@@ -281,9 +289,9 @@ def _run_donchian(candles, period=20, sl_atr=2.0, **_):
                 position = None
 
         if position is None and highs[i] > dc["upper"][i - 1]:
-            sl = price - sl_atr * atr[i]
-            position = {"entry_date": date, "entry_price": price, "strategy": "donchian", "sl": sl}
-            
+            position = {"entry_date": date, "entry_price": price, "strategy": "donchian",
+                        "sl": (price - sl_atr * a) if a is not None else None}
+
     return trades
 
 
