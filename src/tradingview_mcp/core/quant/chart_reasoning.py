@@ -99,15 +99,55 @@ _PRICE_PROBE = r"""
 """
 
 
+# TradingView abbreviates large values, and the multiplier is the whole number.
+# Reading "2.45M" as 2.45 understates it a millionfold — which would make the
+# price cross-check refuse a perfectly good instrument rather than catch a bad
+# one. False refusals are worse than no check: they break working setups.
+_MAGNITUDE = {"K": 1e3, "M": 1e6, "B": 1e9, "T": 1e12}
+
+# Minus renders as several different characters depending on locale and font.
+# U+2212 is what TradingView actually uses; stripping it silently flips a sign.
+_MINUS = "-−–—－"
+
+
 def _to_float(text: Optional[str]) -> Optional[float]:
+    """
+    Parse a price as any asset class renders it.
+
+    Handles thousands separators, currency prefixes and suffixes, unicode
+    minus signs, and K/M/B/T abbreviations — the forms differ by asset class
+    and locale, and a parser that only understands plain decimals silently
+    mis-reads most of them.
+    """
     if not text:
         return None
-    cleaned = "".join(ch for ch in text if ch.isdigit() or ch in ".-")
+    raw = text.strip()
+
+    negative = any(raw.startswith(ch) for ch in _MINUS)
+    scale = 1.0
+    # The suffix must be the last non-space character to count as a magnitude;
+    # a trailing currency code ("104.17 USD") must not be read as one.
+    stripped = raw.rstrip()
+    if stripped and stripped[-1].upper() in _MAGNITUDE:
+        head = stripped[:-1].rstrip()
+        if head and head[-1].isdigit():
+            scale = _MAGNITUDE[stripped[-1].upper()]
+            raw = head
+
+    cleaned = "".join(ch for ch in raw if ch.isdigit() or ch == ".")
+    if not cleaned or cleaned == ".":
+        return None
+    # Guard against a stray second point from grouping conventions.
+    if cleaned.count(".") > 1:
+        head, _, tail = cleaned.rpartition(".")
+        cleaned = head.replace(".", "") + "." + tail
     try:
-        v = float(cleaned)
+        v = float(cleaned) * scale
     except ValueError:
         return None
-    return v if math.isfinite(v) else None
+    if not math.isfinite(v):
+        return None
+    return -v if negative else v
 
 
 def read_chart_context(timeout: float = 6.0) -> ChartContext:

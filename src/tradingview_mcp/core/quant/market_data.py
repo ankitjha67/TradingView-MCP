@@ -147,6 +147,29 @@ _BARE_CRYPTO = {
 _CRYPTOCAP_AGGREGATES = {"TOTAL", "TOTAL2", "TOTAL3", "TOTALDEFI", "OTHERS",
                          "BTC.D", "USDT.D", "STABLE.C"}
 
+# TradingView continuous futures: GC1! is the front month, GC2! the next, and
+# the root maps to a Yahoo "=F" series. Without this the "!" is stripped by the
+# character filter below, leaving "GC1" — not a valid ticker anywhere, so every
+# futures chart failed to resolve. The docstring on SymbolSpec has always
+# listed "futures" as an asset class; nothing ever produced one.
+_FUTURES_ROOTS = {
+    # metals
+    "GC": "GC=F", "SI": "SI=F", "HG": "HG=F", "PL": "PL=F", "PA": "PA=F",
+    # energy
+    "CL": "CL=F", "NG": "NG=F", "RB": "RB=F", "HO": "HO=F", "BZ": "BZ=F",
+    # equity index
+    "ES": "ES=F", "NQ": "NQ=F", "YM": "YM=F", "RTY": "RTY=F",
+    # rates
+    "ZN": "ZN=F", "ZB": "ZB=F", "ZF": "ZF=F", "ZT": "ZT=F",
+    # grains and softs
+    "ZC": "ZC=F", "ZS": "ZS=F", "ZW": "ZW=F", "KC": "KC=F", "SB": "SB=F",
+    "CC": "CC=F", "CT": "CT=F", "LE": "LE=F", "HE": "HE=F",
+    # currency futures
+    "6E": "6E=F", "6J": "6J=F", "6B": "6B=F", "6A": "6A=F", "6C": "6C=F",
+    # crypto futures
+    "BTC": "BTC=F", "ETH": "ETH=F",
+}
+
 # TVC and other index pseudo-exchanges → the Yahoo ticker for the same series.
 _TVC_MAP = {
     "DXY": "DX-Y.NYB", "GOLD": "GC=F", "SILVER": "SI=F", "USOIL": "CL=F",
@@ -192,6 +215,22 @@ def parse_symbol(raw: str, exchange_hint: str = "") -> SymbolSpec:
     if ":" in s:
         left, right = s.split(":", 1)
         exchange, s = left.strip(), right.strip()
+
+    # Continuous futures carry a trailing "!" (GC1!, ES2!). The character
+    # filter below drops it, so recognise it while it is still there — a
+    # stripped "GC1" resolves to nothing and the chart silently fails.
+    _fut = re.fullmatch(r"([A-Z0-9]{1,4}?)([1-9])!", s)
+    if _fut:
+        root, depth = _fut.group(1), _fut.group(2)
+        mapped = _FUTURES_ROOTS.get(root)
+        if mapped:
+            # Yahoo serves only the front month; a back month would be a
+            # different series, so say so rather than quietly substituting.
+            return SymbolSpec(raw=raw, exchange=exchange or "FUTURES",
+                              ticker=f"{root}{depth}!", asset_class="futures",
+                              yahoo=mapped if depth == "1" else "")
+        return SymbolSpec(raw=raw, exchange=exchange or "FUTURES",
+                          ticker=f"{root}{depth}!", asset_class="futures")
 
     s = re.sub(r"[^A-Z0-9._^-]", "", s)
     if not s:
