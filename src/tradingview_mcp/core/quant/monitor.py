@@ -298,6 +298,21 @@ def analyze_once(symbol: str, interval: str, exchange: str = "",
     interval = normalize_interval(interval)
 
     md = fetch_ohlcv(symbol, interval, exchange)
+
+    # Before any model sees these bars: are they the instrument on screen?
+    # Symbol resolution is a chain of guesses and a wrong one is silent — the
+    # numbers come out completely ordinary and are simply about another asset.
+    # The price the chart renders is an independent measurement, so compare it.
+    try:
+        from .chart_reasoning import verify as _verify_chart
+        _resolution = _verify_chart(md.symbol, md, interval=interval)
+    except Exception:
+        _resolution = None          # never let the check itself break a cycle
+    if _resolution is not None and not _resolution.safe:
+        reasons = "; ".join(c.detail for c in _resolution.failures if c.fatal)
+        raise ValueError(
+            f"Refusing to analyse {symbol}: the fetched data does not match the "
+            f"chart. {reasons}")
     df = md.df.tail(cfg.max_lookback_bars)
     f = build_features(df, interval, md.symbol.ticker or symbol)
 
