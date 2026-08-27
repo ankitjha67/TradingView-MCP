@@ -227,6 +227,54 @@ automatically — the Live Signal tab has a button. News and fundamentals do not
 between two 1-minute bars, which is the resolution the debate actually reads at. Once run,
 every refresh that day reuses it, including the monitor.
 
+---
+
+## Statistical significance
+
+Every backtest reports a **t-statistic** beside its Sharpe:
+
+```
+t = annualised Sharpe x sqrt(years observed)
+```
+
+A Sharpe on its own says very little. 1,500 one-minute bars is six trading days, and
+over six days a Sharpe of 8 carries t ≈ 1.0 — indistinguishable from luck. The engine
+now says so instead of ranking it first.
+
+The convention and the 1.96 threshold come from the replication catalogue in
+**[paperswithbacktest/awesome-systematic-trading](https://github.com/paperswithbacktest/awesome-systematic-trading)**,
+which publishes both figures for 1,687 replicated papers and notes plainly that half of
+them fail the bar. The identity was verified against all 61 of its published rows before
+being trusted here (largest deviation 0.12, pure rounding) — and is re-verified by
+`tools/sync_replication_catalogue.py`, which stores the table locally as JSON and warns
+if upstream ever changes convention.
+
+```bash
+python tools/sync_replication_catalogue.py            # refresh the catalogue
+python tools/sync_replication_catalogue.py --compare  # scale against our library
+```
+
+### What it changes
+
+`compare_strategies` reports `significant` and `significantly_losing` next to the
+ranking, the Backtest Lab shows a t-stat column and warns when nothing clears the bar,
+and the performance report adds a caveat when the headline Sharpe is undetermined.
+
+Measured on real data at the time of writing:
+
+| | window | ranked | clear t ≥ 1.96 | significantly losing | best t |
+|---|---|---|---|---|---|
+| SBIN 1m | 0.015 yr | 174 | **0** | 157 | −0.01 |
+| AAPL 1d | 5.95 yr | 183 | **0** | 18 | 1.42 |
+
+Not one model in the library clears significance on either instrument, and on the
+1-minute chart 157 of 174 are significantly *negative*. That is the point of measuring
+it: the top row of a Sharpe-sorted table reads like a discovery, and usually is not.
+
+For scale, across the catalogue's 61 published replications the best Sharpe is **3.39**
+and the median **1.06** — each measured over 16+ years. A model here reporting Sharpe 8
+over six days is not four times better than the best replicated paper in the set.
+
 ## Credits
 
 This project builds on **[atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)**
@@ -243,6 +291,9 @@ layout of **[alphakit](https://github.com/ankitjha67/alphakit)**.
 The agent desk wraps **[TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)**
 by Tauric Research, run unmodified in its own environment and consulted as a second
 opinion.
+
+The Sharpe significance standard, and the replication figures used to calibrate
+against it, come from **[paperswithbacktest/awesome-systematic-trading](https://github.com/paperswithbacktest/awesome-systematic-trading)**.
 
 ## Licence
 

@@ -1,0 +1,561 @@
+{
+ "source": "https://raw.githubusercontent.com/paperswithbacktest/awesome-systematic-trading/main/README.md",
+ "note": "Curated by paperswithbacktest/awesome-systematic-trading. Each row is a published paper replicated over its own full history; Sharpe ratios are gross of costs and measured on each strategy's own active window.",
+ "significance_check": {
+  "rows": 61,
+  "max_abs_error": 0.124,
+  "mean_abs_error": 0.0407,
+  "holds": true
+ },
+ "strategies": [
+  {
+   "name": "A Study Of Differences In Returns Between Large And Small Companies In Europe",
+   "url": "https://paperswithbacktest.com/strategies/a-study-of-differences-in-returns-between-large-and-small-companies-in-europe",
+   "asset_class": "Equities",
+   "sharpe": 1.89,
+   "t_stat": 11.4,
+   "volatility_pct": 6.4,
+   "years": 37.0
+  },
+  {
+   "name": "The Investment CAPM",
+   "url": "https://paperswithbacktest.com/strategies/the-investment-capm-1",
+   "asset_class": "Equities",
+   "sharpe": 1.8,
+   "t_stat": 11.0,
+   "volatility_pct": 2.9,
+   "years": 37.0
+  },
+  {
+   "name": "Important Characteristics, Weaknesses and Errors in German Equity Data from Thomson",
+   "url": "https://paperswithbacktest.com/strategies/important-characteristics-weaknesses-and-errors-in-german-equity-data-from-thomson",
+   "asset_class": "Equities",
+   "sharpe": 1.68,
+   "t_stat": 10.2,
+   "volatility_pct": 6.4,
+   "years": 37.0
+  },
+  {
+   "name": "The Role of Beta and Size in the Cross-Section of European Stock Returns",
+   "url": "https://paperswithbacktest.com/strategies/the-role-of-beta-and-size-in-the-cross-section-of-european-stock-returns",
+   "asset_class": "Equities",
+   "sharpe": 1.63,
+   "t_stat": 9.6,
+   "volatility_pct": 5.3,
+   "years": 34.0
+  },
+  {
+   "name": "Systematic Abnormal Return Variation and Global Market Inefficiencies",
+   "url": "https://paperswithbacktest.com/strategies/systematic-abnormal-return-variation-and-global-market-inefficiencies",
+   "asset_class": "Equities",
+   "sharpe": 1.57,
+   "t_stat": 8.2,
+   "volatility_pct": 9.5,
+   "years": 27.0
+  },
+  {
+   "name": "Value and Size Effect: Now You See It, Now You Don\u2019t",
+   "url": "https://paperswithbacktest.com/strategies/value-and-size-effect-now-you-see-it-now-you-don-t",
+   "asset_class": "Equities",
+   "sharpe": 1.52,
+   "t_stat": 9.3,
+   "volatility_pct": 5.9,
+   "years": 37.0
+  },
+  {
+   "name": "Properties of the Most Diversified Portfolio",
+   "url": "https://paperswithbacktest.com/strategies/properties-of-the-most-diversified-portfolio",
+   "asset_class": "Equities",
+   "sharpe": 1.5,
+   "t_stat": 9.0,
+   "volatility_pct": 14.3,
+   "years": 37.0
+  },
+  {
+   "name": "Understanding Momentum and Reversal?",
+   "url": "https://paperswithbacktest.com/strategies/understanding-momentum-and-reversal",
+   "asset_class": "Equities",
+   "sharpe": 1.36,
+   "t_stat": 8.2,
+   "volatility_pct": 5.1,
+   "years": 36.0
+  },
+  {
+   "name": "Fact, Fiction, and the Size Effect",
+   "url": "https://paperswithbacktest.com/strategies/fact-fiction-and-the-size-effect",
+   "asset_class": "Equities",
+   "sharpe": 1.33,
+   "t_stat": 8.1,
+   "volatility_pct": 2.6,
+   "years": 37.0
+  },
+  {
+   "name": "The cross-section of returns in frontier equity markets: Integrated or segmented pricing?",
+   "url": "https://paperswithbacktest.com/strategies/the-cross-section-of-returns-in-frontier-equity-markets-integrated-or-segmented-pricing",
+   "asset_class": "Equities",
+   "sharpe": 1.32,
+   "t_stat": 8.0,
+   "volatility_pct": 3.9,
+   "years": 36.0
+  },
+  {
+   "name": "Analytical Solution for Kelly\u2019s Criterion for Multiple Outcomes",
+   "url": "https://paperswithbacktest.com/strategies/analytical-solution-for-kelly-s-criterion-for-multiple-outcomes",
+   "asset_class": "Equities",
+   "sharpe": 1.31,
+   "t_stat": 7.9,
+   "volatility_pct": 13.3,
+   "years": 37.0
+  },
+  {
+   "name": "End-To-End Large Portfolio Optimization For Variance Minimization With Neural Networks Through Covariance Cleaning",
+   "url": "https://paperswithbacktest.com/strategies/end-to-end-large-portfolio-optimization-for-variance-minimization-with-neural-networks-through-covariance-cleaning",
+   "asset_class": "Equities",
+   "sharpe": 1.28,
+   "t_stat": 7.3,
+   "volatility_pct": 15.4,
+   "years": 33.0
+  },
+  {
+   "name": "Statistical and Economic Benefits of Whitening Residuals in Bond Yields",
+   "url": "https://paperswithbacktest.com/strategies/statistical-and-economic-benefits-of-whitening-residuals-in-bond-yields",
+   "asset_class": "Bonds",
+   "sharpe": 0.9,
+   "t_stat": 5.0,
+   "volatility_pct": 18.6,
+   "years": 30.0
+  },
+  {
+   "name": "Dynamic Risk-Aware Yield Search: A Useful Tool for Fixed Income Investors",
+   "url": "https://paperswithbacktest.com/strategies/dynamic-risk-aware-yield-search-a-useful-tool-for-fixed-income-investors",
+   "asset_class": "Bonds",
+   "sharpe": 0.89,
+   "t_stat": 4.4,
+   "volatility_pct": 2.9,
+   "years": 25.0
+  },
+  {
+   "name": "Out-performing corporate bonds indices with factor investing",
+   "url": "https://paperswithbacktest.com/strategies/out-performing-corporate-bonds-indices-with-factor-investing",
+   "asset_class": "Bonds",
+   "sharpe": 0.85,
+   "t_stat": 5.1,
+   "volatility_pct": 12.3,
+   "years": 36.0
+  },
+  {
+   "name": "Priced risk in corporate bonds",
+   "url": "https://paperswithbacktest.com/strategies/priced-risk-in-corporate-bonds",
+   "asset_class": "Bonds",
+   "sharpe": 0.72,
+   "t_stat": 3.0,
+   "volatility_pct": 6.0,
+   "years": 17.0
+  },
+  {
+   "name": "Sitting Bucks: Stale Pricing in Fixed Income Funds",
+   "url": "https://paperswithbacktest.com/strategies/sitting-bucks-stale-pricing-in-fixed-income-funds",
+   "asset_class": "Bonds",
+   "sharpe": 0.64,
+   "t_stat": 3.9,
+   "volatility_pct": 5.7,
+   "years": 37.0
+  },
+  {
+   "name": "Frontier and Emerging Government Bond Markets",
+   "url": "https://paperswithbacktest.com/strategies/frontier-and-emerging-government-bond-markets",
+   "asset_class": "Bonds",
+   "sharpe": 0.62,
+   "t_stat": 3.7,
+   "volatility_pct": 13.7,
+   "years": 36.0
+  },
+  {
+   "name": "Regime-based portfolio optimisation:  A Hidden Markov Model approach for fixed  income portfolios",
+   "url": "https://paperswithbacktest.com/strategies/regime-based-portfolio-optimisation-a-hidden-markov-model-approach-for-fixed-income-portfolios",
+   "asset_class": "Bonds",
+   "sharpe": 0.62,
+   "t_stat": 3.6,
+   "volatility_pct": 6.0,
+   "years": 33.0
+  },
+  {
+   "name": "Price Effects of Sovereign Debt Auctions in the Euro-zone: The Role of the Crisis",
+   "url": "https://paperswithbacktest.com/strategies/price-effects-of-sovereign-debt-auctions-in-the-euro-zone-the-role-of-the-crisis",
+   "asset_class": "Bonds",
+   "sharpe": 0.51,
+   "t_stat": 3.1,
+   "volatility_pct": 13.4,
+   "years": 37.0
+  },
+  {
+   "name": "Are Bond Returns Predictable with Real-Time Macro Data?",
+   "url": "https://paperswithbacktest.com/strategies/are-bond-returns-predictable-with-real-time-macro-data",
+   "asset_class": "Bonds",
+   "sharpe": 0.49,
+   "t_stat": 2.5,
+   "volatility_pct": 5.9,
+   "years": 26.0
+  },
+  {
+   "name": "Trading the Term Premium",
+   "url": "https://paperswithbacktest.com/strategies/trading-the-term-premium",
+   "asset_class": "Bonds",
+   "sharpe": 0.45,
+   "t_stat": 2.8,
+   "volatility_pct": 5.0,
+   "years": 37.0
+  },
+  {
+   "name": "Banks\u2019 exposure to interest rate risk, their earnings from term transformation, and the dynamics of the term structure",
+   "url": "https://paperswithbacktest.com/strategies/banks-exposure-to-interest-rate-risk-their-earnings-from-term-transformation-and-the-dynamics-of-the-term-structure",
+   "asset_class": "Bonds",
+   "sharpe": 0.44,
+   "t_stat": 2.7,
+   "volatility_pct": 7.9,
+   "years": 38.0
+  },
+  {
+   "name": "Predictable End-of-Month Treasury Returns",
+   "url": "https://paperswithbacktest.com/strategies/predictable-end-of-month-treasury-returns",
+   "asset_class": "Bonds",
+   "sharpe": 0.43,
+   "t_stat": 2.6,
+   "volatility_pct": 3.8,
+   "years": 37.0
+  },
+  {
+   "name": "How to Improve Commodity Momentum Using Intra-Market Correlation",
+   "url": "https://paperswithbacktest.com/strategies/how-to-improve-commodity-momentum-using-intra-market-correlation",
+   "asset_class": "Commodities",
+   "sharpe": 0.65,
+   "t_stat": 2.8,
+   "volatility_pct": 8.7,
+   "years": 19.0
+  },
+  {
+   "name": "Long-Run Reversal in Commodity Returns: Insights from Seven Centuries of Evidence",
+   "url": "https://paperswithbacktest.com/strategies/long-run-reversal-in-commodity-returns-insights-from-seven-centuries-of-evidence",
+   "asset_class": "Commodities",
+   "sharpe": 0.63,
+   "t_stat": 3.8,
+   "volatility_pct": 20.7,
+   "years": 37.0
+  },
+  {
+   "name": "Rolling vs. Expanding Windows in Mean-Reversion Strategies: Evidence from Gold-Silver and Cross-Asset Validation",
+   "url": "https://paperswithbacktest.com/strategies/rolling-vs-expanding-windows-in-mean-reversion-strategies-evidence-from-gold-silver-and-cross-asset-validation",
+   "asset_class": "Commodities",
+   "sharpe": 0.36,
+   "t_stat": 2.2,
+   "volatility_pct": 98.5,
+   "years": 37.0
+  },
+  {
+   "name": "Good Carry, Bad Carry",
+   "url": "https://paperswithbacktest.com/strategies/good-carry-bad-carry",
+   "asset_class": "Currencies",
+   "sharpe": 1.74,
+   "t_stat": 10.6,
+   "volatility_pct": 4.6,
+   "years": 37.0
+  },
+  {
+   "name": "The Time-Varying Systematic Risk of",
+   "url": "https://paperswithbacktest.com/strategies/the-time-varying-systematic-risk-of",
+   "asset_class": "Currencies",
+   "sharpe": 1.53,
+   "t_stat": 9.3,
+   "volatility_pct": 4.1,
+   "years": 36.0
+  },
+  {
+   "name": "Lessons from the Evolution of Foreign Exchange Trading Strategies",
+   "url": "https://paperswithbacktest.com/strategies/lessons-from-the-evolution-of-foreign-exchange-trading-strategies",
+   "asset_class": "Currencies",
+   "sharpe": 1.24,
+   "t_stat": 7.4,
+   "volatility_pct": 12.4,
+   "years": 36.0
+  },
+  {
+   "name": "Optimal Currency Shares In International Reserves The Impact Of The Euro And The Prospects For The Dollar",
+   "url": "https://paperswithbacktest.com/strategies/optimal-currency-shares-in-international-reserves-the-impact-of-the-euro-and-the-prospects-for-the-dollar",
+   "asset_class": "Currencies",
+   "sharpe": 0.68,
+   "t_stat": 2.9,
+   "volatility_pct": 55.3,
+   "years": 19.0
+  },
+  {
+   "name": "How to Design a Simple Multi-Timeframe Trend Strategy on Bitcoin",
+   "url": "https://paperswithbacktest.com/strategies/how-to-design-a-simple-multi-timeframe-trend-strategy-on-bitcoin",
+   "asset_class": "Cryptocurrencies",
+   "sharpe": 3.39,
+   "t_stat": 16.2,
+   "volatility_pct": 46.3,
+   "years": 23.0
+  },
+  {
+   "name": "\u2018Know When to Hodl \u2018Em, Know When to Fodl \u2018Em\u2019: An Investigation of Factor Based Investing in the Cryptocurrency Space",
+   "url": "https://paperswithbacktest.com/strategies/know-when-to-hodl-em-know-when-to-fodl-em-an-investigation-of-factor-based-investing-in-the-cryptocurrency-space",
+   "asset_class": "Cryptocurrencies",
+   "sharpe": 1.53,
+   "t_stat": 6.2,
+   "volatility_pct": 9.6,
+   "years": 16.0
+  },
+  {
+   "name": "Seasonality, Trend-following, and Mean reversion in Bitcoin",
+   "url": "https://paperswithbacktest.com/strategies/seasonality-trend-following-and-mean-reversion-in-bitcoin",
+   "asset_class": "Cryptocurrencies",
+   "sharpe": 1.11,
+   "t_stat": 4.5,
+   "volatility_pct": 49.5,
+   "years": 16.0
+  },
+  {
+   "name": "Do Risk Preferences Drive Momentum in Cryptocurrencies?",
+   "url": "https://paperswithbacktest.com/strategies/do-risk-preferences-drive-momentum-in-cryptocurrencies",
+   "asset_class": "Cryptocurrencies",
+   "sharpe": 0.68,
+   "t_stat": 4.0,
+   "volatility_pct": 54.9,
+   "years": 34.0
+  },
+  {
+   "name": "The Blockchain Risk Parity Line: Moving From The Efficient Frontier To The Final Frontier Of Investments",
+   "url": "https://paperswithbacktest.com/strategies/the-blockchain-risk-parity-line-moving-from-the-efficient-frontier-to-the-final-frontier-of-investments",
+   "asset_class": "Cryptocurrencies",
+   "sharpe": 0.58,
+   "t_stat": 3.4,
+   "volatility_pct": 54.1,
+   "years": 34.0
+  },
+  {
+   "name": "Price Overreactions in the Cryptocurrency Market",
+   "url": "https://paperswithbacktest.com/strategies/price-overreactions-in-the-cryptocurrency-market",
+   "asset_class": "Cryptocurrencies",
+   "sharpe": 0.53,
+   "t_stat": 3.1,
+   "volatility_pct": 32.3,
+   "years": 35.0
+  },
+  {
+   "name": "Proof-of-What? Detecting original consensus algorithms in cryptocurrencies with a four-factor model",
+   "url": "https://paperswithbacktest.com/strategies/proof-of-what-detecting-original-consensus-algorithms-in-cryptocurrencies-with-a-four-factor-model",
+   "asset_class": "Cryptocurrencies",
+   "sharpe": 0.52,
+   "t_stat": 2.4,
+   "volatility_pct": 85.9,
+   "years": 22.0
+  },
+  {
+   "name": "Cryptocurrency as money: A trading strategy solution",
+   "url": "https://paperswithbacktest.com/strategies/cryptocurrency-as-money-a-trading-strategy-solution",
+   "asset_class": "Cryptocurrencies",
+   "sharpe": 0.47,
+   "t_stat": 2.8,
+   "volatility_pct": 15.4,
+   "years": 35.0
+  },
+  {
+   "name": "Media Tone Goes Viral: Global Evidence from the Currency Market",
+   "url": "https://paperswithbacktest.com/strategies/media-tone-goes-viral-global-evidence-from-the-currency-market",
+   "asset_class": "Derivatives",
+   "sharpe": 1.06,
+   "t_stat": 6.5,
+   "volatility_pct": 1.3,
+   "years": 38.0
+  },
+  {
+   "name": "Robust Portfolio Optimization with Value-At-Risk Adjusted Sharpe Ratios",
+   "url": "https://paperswithbacktest.com/strategies/robust-portfolio-optimization-with-value-at-risk-adjusted-sharpe-ratios",
+   "asset_class": "Derivatives",
+   "sharpe": 0.92,
+   "t_stat": 5.6,
+   "volatility_pct": 17.1,
+   "years": 37.0
+  },
+  {
+   "name": "When Factor Timing Makes Sense",
+   "url": "https://paperswithbacktest.com/strategies/when-factor-timing-makes-sense",
+   "asset_class": "Derivatives",
+   "sharpe": 0.74,
+   "t_stat": 4.5,
+   "volatility_pct": 10.4,
+   "years": 37.0
+  },
+  {
+   "name": "Rational Decision-Making Under Uncertainty: Observed Betting Patterns on a Biased Coin",
+   "url": "https://paperswithbacktest.com/strategies/rational-decision-making-under-uncertainty-observed-betting-patterns-on-a-biased-coin",
+   "asset_class": "Derivatives",
+   "sharpe": 0.6,
+   "t_stat": 3.7,
+   "volatility_pct": 3.6,
+   "years": 38.0
+  },
+  {
+   "name": "Can Financial Innovation Succeed by Catering to Behavioral Preferences? Evidence from a Callable Options Market",
+   "url": "https://paperswithbacktest.com/strategies/can-financial-innovation-succeed-by-catering-to-behavioral-preferences-evidence-from-a-callable-options-market",
+   "asset_class": "Derivatives",
+   "sharpe": 0.55,
+   "t_stat": 3.4,
+   "volatility_pct": 17.7,
+   "years": 37.0
+  },
+  {
+   "name": "A Theory of Model Sophistication and Operational Risk",
+   "url": "https://paperswithbacktest.com/strategies/a-theory-of-model-sophistication-and-operational-risk",
+   "asset_class": "Derivatives",
+   "sharpe": 0.5,
+   "t_stat": 3.1,
+   "volatility_pct": 9.4,
+   "years": 37.0
+  },
+  {
+   "name": "Tail-Risk Protection Trading Strategies",
+   "url": "https://paperswithbacktest.com/strategies/tail-risk-protection-trading-strategies",
+   "asset_class": "Derivatives",
+   "sharpe": 0.49,
+   "t_stat": 3.0,
+   "volatility_pct": 13.6,
+   "years": 37.0
+  },
+  {
+   "name": "Is Media Tone just a Tone? Time-Series and Cross-Sectional Evidence from the Currency Market",
+   "url": "https://paperswithbacktest.com/strategies/is-media-tone-just-a-tone-time-series-and-cross-sectional-evidence-from-the-currency-market",
+   "asset_class": "Derivatives",
+   "sharpe": 0.35,
+   "t_stat": 2.1,
+   "volatility_pct": 3.1,
+   "years": 36.0
+  },
+  {
+   "name": "The Temporal Pattern of Trading Rule Returns and Central Bank Intervention: Intervention Does Not Generate Technical Trading Rule Profits",
+   "url": "https://paperswithbacktest.com/strategies/the-temporal-pattern-of-trading-rule-returns-and-central-bank-intervention-intervention-does-not-generate-technical-trading-rule-profits",
+   "asset_class": "Derivatives",
+   "sharpe": 0.33,
+   "t_stat": 2.0,
+   "volatility_pct": 9.3,
+   "years": 37.0
+  },
+  {
+   "name": "Arbitrage in the Foreign Exchange Market: Turning on the Microscope",
+   "url": "https://paperswithbacktest.com/strategies/arbitrage-in-the-foreign-exchange-market-turning-on-the-microscope",
+   "asset_class": "Derivatives",
+   "sharpe": 0.32,
+   "t_stat": 2.0,
+   "volatility_pct": 8.4,
+   "years": 37.0
+  },
+  {
+   "name": "Optimal Annuity Risk Management",
+   "url": "https://paperswithbacktest.com/strategies/optimal-annuity-risk-management",
+   "asset_class": "Multi-asset",
+   "sharpe": 1.62,
+   "t_stat": 9.9,
+   "volatility_pct": 5.4,
+   "years": 38.0
+  },
+  {
+   "name": "Explaining low annuity demand: an optimal portfolio application to Japan",
+   "url": "https://paperswithbacktest.com/strategies/explaining-low-annuity-demand-an-optimal-portfolio-application-to-japan",
+   "asset_class": "Multi-asset",
+   "sharpe": 1.6,
+   "t_stat": 9.8,
+   "volatility_pct": 4.8,
+   "years": 38.0
+  },
+  {
+   "name": "Diverging roads: Theory-based vs. machine learning-implied stock risk premia",
+   "url": "https://paperswithbacktest.com/strategies/diverging-roads-theory-based-vs-machine-learning-implied-stock-risk-premia",
+   "asset_class": "Multi-asset",
+   "sharpe": 1.57,
+   "t_stat": 9.5,
+   "volatility_pct": 8.3,
+   "years": 37.0
+  },
+  {
+   "name": "The Anomalous Behavior of the S&P Covered Call Closed End Fund",
+   "url": "https://paperswithbacktest.com/strategies/the-anomalous-behavior-of-the-s-p-covered-call-closed-end-fund",
+   "asset_class": "Multi-asset",
+   "sharpe": 1.36,
+   "t_stat": 8.3,
+   "volatility_pct": 18.6,
+   "years": 37.0
+  },
+  {
+   "name": "Any role for mean reversion in short term asset",
+   "url": "https://paperswithbacktest.com/strategies/any-role-for-mean-reversion-in-short-term-asset",
+   "asset_class": "Multi-asset",
+   "sharpe": 1.3,
+   "t_stat": 7.4,
+   "volatility_pct": 8.6,
+   "years": 32.0
+  },
+  {
+   "name": "Inconsistent investment and consumption problems",
+   "url": "https://paperswithbacktest.com/strategies/inconsistent-investment-and-consumption-problems",
+   "asset_class": "Multi-asset",
+   "sharpe": 1.26,
+   "t_stat": 7.7,
+   "volatility_pct": 2.6,
+   "years": 38.0
+  },
+  {
+   "name": "Heuristic Portfolio Rules with Labor Income",
+   "url": "https://paperswithbacktest.com/strategies/heuristic-portfolio-rules-with-labor-income",
+   "asset_class": "Multi-asset",
+   "sharpe": 1.21,
+   "t_stat": 7.4,
+   "volatility_pct": 10.5,
+   "years": 38.0
+  },
+  {
+   "name": "Investing for the Long-Run in European Real Estate",
+   "url": "https://paperswithbacktest.com/strategies/investing-for-the-long-run-in-european-real-estate",
+   "asset_class": "Multi-asset",
+   "sharpe": 1.11,
+   "t_stat": 4.5,
+   "volatility_pct": 5.5,
+   "years": 16.0
+  },
+  {
+   "name": "Regime-Aware Risk Management in Concentrated Equity Portfolios: Evidence from the Magnificent Seven",
+   "url": "https://paperswithbacktest.com/strategies/regime-aware-risk-management-in-concentrated-equity-portfolios-evidence-from-the-magnificent-seven",
+   "asset_class": "Multi-asset",
+   "sharpe": 1.11,
+   "t_stat": 6.4,
+   "volatility_pct": 1.4,
+   "years": 33.0
+  },
+  {
+   "name": "Are Heuristics Better than Theory if Market Crashes Are",
+   "url": "https://paperswithbacktest.com/strategies/are-heuristics-better-than-theory-if-market-crashes-are",
+   "asset_class": "Multi-asset",
+   "sharpe": 1.1,
+   "t_stat": 6.7,
+   "volatility_pct": 8.4,
+   "years": 37.0
+  },
+  {
+   "name": "Risk Parity Portfolios with Risk Factors",
+   "url": "https://paperswithbacktest.com/strategies/risk-parity-portfolios-with-risk-factors",
+   "asset_class": "Multi-asset",
+   "sharpe": 1.08,
+   "t_stat": 6.3,
+   "volatility_pct": 17.3,
+   "years": 34.0
+  },
+  {
+   "name": "A Risk Based Approach to Tactical Asset Allocation",
+   "url": "https://paperswithbacktest.com/strategies/a-risk-based-approach-to-tactical-asset-allocation",
+   "asset_class": "Multi-asset",
+   "sharpe": 1.06,
+   "t_stat": 6.4,
+   "volatility_pct": 5.0,
+   "years": 37.0
+  }
+ ]
+}

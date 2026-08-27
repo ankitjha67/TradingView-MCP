@@ -99,6 +99,9 @@ class RiskMetrics:
     ulcer_index: float = 0.0
     martin_ratio: float = float("nan")     # UPI: CAGR / Ulcer Index
     k_ratio: float = float("nan")
+    # Significance of the Sharpe above it: t = SR x sqrt(years).
+    sharpe_t_stat: float = float("nan")
+    years_tested: float = 0.0
 
     max_drawdown_pct: float = 0.0
     max_drawdown_bars: int = 0
@@ -440,9 +443,24 @@ def analyse(result: BacktestResult, df: pd.DataFrame, *, bars_per_year: int = 25
         monthly_returns=_monthly_returns(equity),
         equity_curve=equity)
 
+    report.risk.sharpe_t_stat = getattr(result, "t_stat", float("nan"))
+    report.risk.years_tested = getattr(result, "years_tested", 0.0)
+
     # Caveats are part of the result, not a footnote. A profit factor computed on
     # six trades is not a comparable number to one computed on six hundred.
     a = report.all_trades
+    _t, _yrs = report.risk.sharpe_t_stat, report.risk.years_tested
+    if math.isfinite(_t) and a.total_trades > 0:
+        if _t < 1.96:
+            report.caveats.append(
+                f"Sharpe {report.risk.sharpe:.2f} carries a t-statistic of {_t:.2f} over "
+                f"{_yrs:.2f} years, below the 1.96 needed to distinguish it from zero. "
+                f"Treat the ratio as undetermined rather than good.")
+        elif _t <= -1.96:
+            report.caveats.append(
+                f"The Sharpe is significantly negative (t = {_t:.2f}): this strategy "
+                f"reliably lost money over the window, which is a real finding rather "
+                f"than noise.")
     if 0 < a.total_trades < MIN_TRADES_FOR_CONFIDENCE:
         report.caveats.append(
             f"Only {a.total_trades} trades — trade-based ratios (profit factor, win rate, "
@@ -552,6 +570,7 @@ def render_markdown(rep: PerformanceReport) -> str:
         f"| Omega | {_fmt(r.omega)} | Total gains ÷ total losses (Keating & Shadwick 2002) |",
         f"| Martin (UPI) | {_fmt(r.martin_ratio)} | CAGR ÷ Ulcer Index — penalises deep, long drawdowns |",
         f"| K-ratio | {_fmt(r.k_ratio)} | Consistency of the equity climb (Kestner 1996) |",
+        f"| Sharpe t-stat | {_fmt(r.sharpe_t_stat)} | Sharpe x sqrt({r.years_tested:.2f} yrs); needs 1.96 to mean anything |",
         f"| Recovery factor | {_fmt(r.recovery_factor)} | Net profit ÷ max drawdown |",
         f"| Ulcer Index | {_fmt(r.ulcer_index)} | RMS drawdown — depth *and* duration |",
         f"| Tail ratio | {_fmt(r.tail_ratio)} | 95th percentile gain ÷ 5th percentile loss |",

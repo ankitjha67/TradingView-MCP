@@ -1011,7 +1011,15 @@ with tabs[2]:
                       unsafe_allow_html=True)
         k[3].markdown(card("Beat hold", f"{res['beat_buy_and_hold']}",
                            f"of {res['models_ranked']} ranked"), unsafe_allow_html=True)
-        k[4].markdown(card("Skipped", f"{res['models_skipped']}", "could not run"), unsafe_allow_html=True)
+        _nsig = res.get("significant")
+        if _nsig is None:
+            k[4].markdown(card("Skipped", f"{res['models_skipped']}", "could not run"),
+                          unsafe_allow_html=True)
+        else:
+            k[4].markdown(card("Significant", f"{_nsig}",
+                               f"t ≥ 1.96 over {res.get('years_tested', 0):.2f} yrs",
+                               "var(--long)" if _nsig else "var(--short)"),
+                          unsafe_allow_html=True)
 
         st.markdown(f'<div class="note">Window: {res["period_start"][:10]} → {res["period_end"][:10]} '
                     f'({res["bars"]} bars). A model beating buy-and-hold on one window and one symbol '
@@ -1020,13 +1028,43 @@ with tabs[2]:
 
         rank = pd.DataFrame(res["ranking"])
         if not rank.empty:
-            show = rank[["rank", "strategy", "category", "total_return_pct", "sharpe_ratio",
-                         "max_drawdown_pct", "win_rate_pct", "total_trades", "exposure_pct"]]
+            _cols = ["rank", "strategy", "category", "total_return_pct", "sharpe_ratio"]
+            if "t_stat" in rank.columns:
+                _cols += ["t_stat", "significant"]
+            _cols += ["max_drawdown_pct", "win_rate_pct", "total_trades", "exposure_pct"]
+            show = rank[_cols]
             st.dataframe(show.rename(columns={
                 "total_return_pct": "return %", "sharpe_ratio": "sharpe",
+                "t_stat": "t-stat", "significant": "sig?",
                 "max_drawdown_pct": "max DD %", "win_rate_pct": "win %",
                 "total_trades": "trades", "exposure_pct": "exposure %"}),
                 use_container_width=True, height=420, hide_index=True)
+
+            # The ranking is sorted by Sharpe, which invites reading row 1 as a
+            # discovery. Usually it is not: over a short window almost nothing
+            # clears a t-statistic of 1.96, and saying so next to the table is
+            # the difference between a result and a coincidence.
+            _sig = res.get("significant")
+            if _sig is not None:
+                _yrs, _lose = res.get("years_tested", 0.0), res.get("significantly_losing", 0)
+                if _sig == 0:
+                    st.warning(
+                        f"**No model here is statistically significant.** The window is "
+                        f"{_yrs:.2f} years, and nothing in it clears a t-statistic of 1.96 "
+                        f"(t = Sharpe × √years). {_lose} of {res['models_ranked']} are "
+                        f"significantly *negative* — those are real, and they are losses. "
+                        f"Treat the top of this table as undetermined, not as a winner.",
+                        icon="⚠")
+                else:
+                    st.success(
+                        f"**{_sig} of {res['models_ranked']}** clear t ≥ 1.96 over "
+                        f"{_yrs:.2f} years. {_lose} are significantly negative.", icon="✓")
+                st.caption(
+                    "Standard borrowed from the replication catalogue in "
+                    "[awesome-systematic-trading](https://github.com/paperswithbacktest/awesome-systematic-trading), "
+                    "which applies it to 1,687 replicated papers and notes that half of them "
+                    "fail it. For scale: across its 61 published entries the best Sharpe is "
+                    "3.39 and the median is 1.06 — each measured over 16+ years.")
 
             st.markdown("#### Full performance report")
             st.caption("The TradingView Strategy Tester view: All / Long / Short breakdown, "

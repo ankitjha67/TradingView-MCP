@@ -32,6 +32,18 @@ from .features import FeatureSet, build_features
 from .registry import StrategyRegistry, get_registry
 
 
+# A Sharpe ratio is an estimate, and an estimate needs a standard error. The
+# conventional two-sided 5% critical value is 1.96, which is the bar the
+# replication catalogue at paperswithbacktest/awesome-systematic-trading applies
+# to its 1,687 paper replications — and by its own note, half of them fail it.
+#
+# The relationship is t = annualised Sharpe x sqrt(years observed), verified
+# against that catalogue's published table to within rounding. It is worth
+# internalising what it implies: 1,500 one-minute bars is six trading days, so
+# a Sharpe of 8 over that window carries t ≈ 1.0 and means nothing at all.
+SIGNIFICANCE_T = 1.96
+
+
 @dataclass
 class Trade:
     entry_time: object
@@ -64,6 +76,13 @@ class BacktestResult:
     total_return_pct: float
     annualized_return_pct: float
     sharpe_ratio: float
+    # Is that Sharpe distinguishable from zero? t = SR x sqrt(years observed).
+    # A Sharpe without one says very little: a 6-day window will happily report
+    # 8.0 and mean nothing. Standard and threshold follow the replication
+    # catalogue at paperswithbacktest/awesome-systematic-trading, which reports
+    # both and keeps only what clears 1.96.
+    t_stat: float
+    years_tested: float
     sortino_ratio: float
     max_drawdown_pct: float
     calmar_ratio: float
@@ -88,6 +107,18 @@ class BacktestResult:
     position: pd.Series = field(default_factory=pd.Series, repr=False)
     error: str = ""
 
+    @property
+    def significant(self) -> bool:
+        """
+        Is the Sharpe significantly *positive*?
+
+        Deliberately one-sided. A t of -4 is every bit as statistically solid as
+        +4, but it says the strategy reliably loses — which is not a result to
+        promote up a ranking of things to trade. Use ``t_stat`` directly to see
+        the losing side.
+        """
+        return math.isfinite(self.t_stat) and self.t_stat >= SIGNIFICANCE_T
+
     def to_dict(self, include_curve: bool = False) -> dict:
         out = {
             "strategy": self.strategy, "category": self.category, "symbol": self.symbol,
@@ -95,6 +126,10 @@ class BacktestResult:
             "total_return_pct": round(self.total_return_pct, 3),
             "annualized_return_pct": round(self.annualized_return_pct, 3),
             "sharpe_ratio": round(self.sharpe_ratio, 3),
+            "t_stat": (round(self.t_stat, 2)
+                       if math.isfinite(self.t_stat) else None),
+            "years_tested": round(self.years_tested, 3),
+            "significant": self.significant,
             "sortino_ratio": round(self.sortino_ratio, 3),
             "max_drawdown_pct": round(self.max_drawdown_pct, 3),
             "calmar_ratio": round(self.calmar_ratio, 3),
@@ -125,6 +160,7 @@ def _empty_result(name: str, category: str, symbol: str, interval: str,
     return BacktestResult(
         strategy=name, category=category, symbol=symbol, interval=interval, bars=bars,
         total_return_pct=0.0, annualized_return_pct=0.0, sharpe_ratio=0.0,
+        t_stat=float("nan"), years_tested=0.0,
         sortino_ratio=0.0, max_drawdown_pct=0.0, calmar_ratio=0.0, volatility_pct=0.0,
         total_trades=0, win_rate_pct=0.0, profit_factor=float("nan"),
         avg_win_pct=0.0, avg_loss_pct=0.0, expectancy_pct=0.0, avg_bars_held=0.0,
@@ -201,6 +237,14 @@ def run_backtest(
     sortino = (mean_ann / downside
                if downside and downside > 1e-12 else float("nan"))
 
+    # Significance of the Sharpe, on the same convention the replication
+    # catalogue uses: t = annualised SR x sqrt(years). Equivalent to
+    # SR_per_bar x sqrt(n_bars), which is why a short window cannot rescue a
+    # high ratio — 1500 one-minute bars is six days, not a track record.
+    years_tested = len(net) / bpy if bpy else 0.0
+    t_stat = (sharpe * math.sqrt(years_tested)
+              if math.isfinite(sharpe) and years_tested > 0 else float("nan"))
+
     dd = equity / equity.cummax() - 1.0
     max_dd = float(dd.min())
     calmar = (ann_return / abs(max_dd)) if max_dd < -1e-9 else float("nan")
@@ -218,7 +262,8 @@ def run_backtest(
         strategy=name, category=cat, symbol=symbol, interval=interval, bars=f.n,
         total_return_pct=total_return * 100,
         annualized_return_pct=float(ann_return) * 100,
-        sharpe_ratio=sharpe, sortino_ratio=float(sortino),
+        sharpe_ratio=sharpe, t_stat=t_stat, years_tested=years_tested,
+        sortino_ratio=float(sortino),
         max_drawdown_pct=max_dd * 100,
         calmar_ratio=float(calmar), volatility_pct=vol * 100,
         total_trades=len(trades),
@@ -322,6 +367,16 @@ def compare_strategies(
         "sorted_by": sort_by,
         "models_tested": len(models),
         "models_ranked": len(qualified),
+        # How much of this ranking survives a significance test. Reported
+        # alongside the ranking on purpose: sorting 180 models by Sharpe and
+        # showing the top of the list implies the winner found something, and
+        # usually none of them did. Counts are over the ranked set.
+        "years_tested": round(qualified[0].years_tested, 3) if qualified else 0.0,
+        "significant": sum(1 for r in qualified if r.significant),
+        "significantly_losing": sum(
+            1 for r in qualified
+            if math.isfinite(r.t_stat) and r.t_stat <= -SIGNIFICANCE_T),
+        "significance_threshold": SIGNIFICANCE_T,
         "models_skipped": len(skipped),
         "models_too_few_trades": len(thin),
         "ranking": [{**r.to_dict(), "rank": i + 1} for i, r in enumerate(qualified)],
