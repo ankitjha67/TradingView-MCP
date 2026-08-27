@@ -40,6 +40,9 @@ from tradingview_mcp.core.quant.sizing import (
     CAPITAL_TIERS, MAX_CAPITAL, MIN_CAPITAL, CapitalConfig, build_trade_plan,
     resolve_instrument,
 )
+from tradingview_mcp.core.research import (
+    available as research_available, read_feed as research_feed,
+)
 from tradingview_mcp.core.quant.agents import (
     availability as agents_availability, desk_params_from_llm_config,
     run_desk as run_agent_desk,
@@ -599,6 +602,17 @@ with st.expander("Where the time went"):
                "and Python loops that hold the GIL; running those on threads was "
                "measured 9% slower than doing them in order, so they are sequential.")
 
+@st.cache_data(ttl=900, show_spinner=False)
+def research_news(symbol: str, limit: int = 12):
+    """Public news for a ticker. Research context only — never a model input."""
+    import urllib.parse
+    ticker = symbol.split(":")[-1].strip()
+    q = urllib.parse.quote_plus(f"{ticker} stock")
+    return research_feed(
+        f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en",
+        limit=limit)
+
+
 @st.cache_resource(show_spinner=False, max_entries=64)
 def single_equity(name: str, symbol: str, interval: str, exchange: str,
                   comm: float, slip: float, shorts: bool):
@@ -885,6 +899,42 @@ with tabs[0]:
             st.error(_v.reason_unavailable or "the desk could not run")
             if _v.error:
                 st.code(_v.error[:800], language="text")
+
+    # ── research reading ──────────────────────────────────────────────────────
+    # Deliberately below the desk and above the commentary: it is context for a
+    # person, not an input to anything. Nothing in this block reaches the
+    # models, the confidence engine or the sizer.
+    st.markdown("#### Research reading")
+    _rok, _rwhy = research_available()
+    if not _rok:
+        st.caption(_rwhy)
+    else:
+        _rc1, _rc2 = st.columns([3, 1])
+        _rc1.caption(
+            "Public news and pages about this instrument, read on demand. "
+            "This is background for you — it is not a signal, has no history, "
+            "and could not be backtested if it were. Restricted to "
+            "zero-configuration sources; anything needing a personal login is "
+            "refused in code.")
+        if _rc2.button("Read the news", key="read_news", use_container_width=True):
+            with st.spinner("Reading…"):
+                st.session_state["news"] = research_news(spec.ticker or symbol, 12)
+                st.session_state["news_for"] = symbol
+
+        _news = st.session_state.get("news")
+        if _news is not None and st.session_state.get("news_for") == symbol:
+            if not _news.ok:
+                st.warning(f"Could not read it: {_news.error}")
+            else:
+                st.caption(f"{_news.title} · {_news.source}")
+                for _it in _news.items[:12]:
+                    _when = f" · {_it['published']}" if _it["published"] else ""
+                    if _it["link"]:
+                        st.markdown(f"- [{_it['title']}]({_it['link']}){_when}")
+                    else:
+                        st.markdown(f"- {_it['title']}{_when}")
+        elif _news is not None:
+            st.caption("Symbol changed — press again for this instrument.")
 
     st.markdown("#### Commentary")
     res = P.commentary or {}

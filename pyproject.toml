@@ -69,12 +69,13 @@ package = true
 asyncio_mode = "auto"
 # Default runs stay hermetic — the real-network stress suite only runs when
 # explicitly selected: `pytest -m stress tests/stress`.
-addopts = '-m "not stress"'
+addopts = '-m "not stress and not network"'
 # Opt-in markers — only run when explicitly requested via -m so CI default
 # stays hermetic. The 'stress' suite hits real TradingView upstream and
 # asserts wall-clock bounds; ``pytest -m stress`` to run.
 markers = [
     "stress: real-network stress tests (require live upstream; not in CI)",
+    "network: needs live network; agent-reach health-probes every channel, which takes over a minute. Run with: pytest -m network",
 ]
 
 [build-system]

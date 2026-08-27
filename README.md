@@ -275,6 +275,57 @@ For scale, across the catalogue's 61 published replications the best Sharpe is *
 and the median **1.06** — each measured over 16+ years. A model here reporting Sharpe 8
 over six days is not four times better than the best replicated paper in the set.
 
+---
+
+## Research reading (not a data feed)
+
+A panel in Live Signal and a CLI for reading public news and pages about the instrument
+you are looking at, routed via
+**[Panniantong/Agent-Reach](https://github.com/Panniantong/Agent-Reach)**.
+
+```bash
+python tools/research.py --doctor            # what this machine can read
+python tools/research.py                     # news for the open chart
+python tools/research.py --url https://...   # read one public page
+```
+
+**It deliberately does not feed the models, and cannot.** Every voting model implements
+`score(f) -> pd.Series` over the whole frame — that historical path is what the
+backtester replays, what the confidence engine calibrates, and what earns a t-statistic.
+A web read returns what a page says *now*; there is no way to ask it what was being said
+on each of the previous 1,499 bars. A model fed this way could fill the last element of
+the series and nothing else, so it could never be backtested or clear the significance
+bar. Marking `DataNeed.NEWS` satisfied on that basis would flip ten sentiment models to
+"voting" while leaving them unverifiable — the exact failure the `DataNeed` enum exists
+to prevent.
+
+A test asserts nothing under `core/quant/` imports it, so the separation is enforced
+rather than promised. `core/research.py` sits outside the engine for the same reason.
+
+### Zero-configuration sources only
+
+Agent-Reach tags each channel with a tier. Tier 0 needs no configuration; tier 1 and
+above work only through a personal logged-in session or exported cookies — its own notes
+say Reddit's anonymous API is blocked and only the logged-in route remains. Driving those
+from an unattended monitor would mean acting on your accounts against the platforms'
+terms, so the ceiling is enforced in code (`MAX_TIER = 0`), not left to a docstring.
+
+| | channels | here |
+|---|---|---|
+| tier 0 — no config | web (Jina Reader), rss, github, youtube, v2ex, exa_search | **used** |
+| tier 1+ — session or cookies | reddit, twitter, xueqiu, bilibili, xiaohongshu, instagram, facebook, linkedin | refused |
+
+> **Note on installing it.** `pip install agent-reach` fetches a *different* project —
+> PyPI's package of that name is `jgalea/agent-reach`, unrelated to this one. Install
+> from source: `pip install git+https://github.com/Panniantong/Agent-Reach`.
+
+### If you want social data properly
+
+The honest route is to record these readings forward into a dated archive and wait for
+history to accumulate — not to backfill from a live endpoint, whose results are ranked by
+today's engagement and silently omit whatever has since been deleted. That is survivorship
+bias baked into the input, and a backtest built on it would be worse than no backtest.
+
 ## Credits
 
 This project builds on **[atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)**
@@ -294,6 +345,9 @@ opinion.
 
 The Sharpe significance standard, and the replication figures used to calibrate
 against it, come from **[paperswithbacktest/awesome-systematic-trading](https://github.com/paperswithbacktest/awesome-systematic-trading)**.
+
+Research reading is routed through **[Panniantong/Agent-Reach](https://github.com/Panniantong/Agent-Reach)**
+by Panniantong, restricted to its zero-configuration channels.
 
 ## Licence
 
