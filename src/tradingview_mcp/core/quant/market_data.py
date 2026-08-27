@@ -142,7 +142,8 @@ _BARE_CRYPTO = {
     "BNB", "TON", "USDT", "USDC", "XMR", "EOS", "FTM", "RUNE", "CRV", "LDO",
 }
 
-# TradingView aggregate symbols that have no tradeable instrument behind them.
+# Kept only for callers that ask "is this a well-known aggregate name". The
+# classifier no longer consults it — see the note at the CRYPTOCAP branch.
 _CRYPTOCAP_AGGREGATES = {"TOTAL", "TOTAL2", "TOTAL3", "TOTALDEFI", "OTHERS",
                          "BTC.D", "USDT.D", "STABLE.C"}
 
@@ -197,8 +198,17 @@ def parse_symbol(raw: str, exchange_hint: str = "") -> SymbolSpec:
         return SymbolSpec(raw=raw or "", exchange=exchange)
 
     # ── TradingView pseudo-exchanges ──
-    # CRYPTOCAP aggregates (TOTAL, BTC.D) have no tradeable instrument behind them.
-    if exchange == "CRYPTOCAP" and s in _CRYPTOCAP_AGGREGATES:
+    # CRYPTOCAP is TradingView's index provider for crypto market capitalisation
+    # and dominance — TOTAL, BTC.D (dominance %), SOLANA.C (market cap). Every
+    # series on it is computed; none is a tradeable instrument.
+    #
+    # This used to match against a list of eight known names, which meant any
+    # series not on that list fell through to the crypto branch and was mapped
+    # to a pair by string-munging. CRYPTOCAP:SOLANA.C became "SOLANA" and then
+    # SOLAUSDT / SOLA-USD — a different token entirely — so the engine would
+    # cheerfully price, backtest and size a position on the wrong instrument.
+    # The exchange is the discriminator; the name list cannot keep up with it.
+    if exchange == "CRYPTOCAP":
         return SymbolSpec(raw=raw, exchange=exchange, ticker=s, asset_class="aggregate")
 
     # TVC / SP / DJ / CBOE carry index and commodity series under their own tickers.
