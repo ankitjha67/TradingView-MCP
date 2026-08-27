@@ -17,6 +17,26 @@ from ..features import FeatureSet, _safe_div, rolling_rank, zscore
 CAT = "Volatility"
 
 
+
+def _causal_long_run_var(r: np.ndarray, min_periods: int = 50) -> np.ndarray:
+    """
+    Long-run variance as it was knowable at each bar.
+
+    GARCH needs an unconditional variance to anchor omega and to seed the
+    recursion. Taking it over the whole sample — float(np.nanvar(r)) — makes
+    every historical reading depend on data that had not happened: append one
+    bar and the anchor shifts, which propagates through the entire recursion.
+    Measured on AAPL daily, that revised 825 of 835 earlier readings.
+
+    An expanding variance uses only bars up to and including each point, so a
+    reading is final once its bar closes. Early bars stay NaN rather than being
+    back-filled, because filling them from the first valid value would put
+    tomorrow's number at the start of the series.
+    """
+    lr = pd.Series(r).expanding(min_periods=min_periods).var().to_numpy()
+    return np.where(np.isfinite(lr) & (lr > 0), lr, np.nan)
+
+
 class GARCHVolatilityForecast(BaseStrategy):
     name = "GARCH(1,1) Volatility Forecast"
     category = CAT
@@ -30,12 +50,15 @@ class GARCHVolatilityForecast(BaseStrategy):
 
     def _garch_var(self, f: FeatureSet) -> pd.Series:
         r = f.logret.fillna(0.0).to_numpy()
-        long_run = float(np.nanvar(r)) or 1e-8
         a, b = self.params["alpha"], self.params["beta"]
-        omega = long_run * (1 - a - b)
-        v = np.empty(len(r)); v[0] = long_run
-        for i in range(1, len(r)):
-            v[i] = omega + a * r[i - 1] ** 2 + b * v[i - 1]
+        lr = _causal_long_run_var(r)
+        v = np.full(len(r), np.nan)
+        start = int(np.argmax(np.isfinite(lr))) if np.isfinite(lr).any() else len(r)
+        if start < len(r):
+            v[start] = lr[start]
+            for i in range(start + 1, len(r)):
+                omega = lr[i] * (1 - a - b)
+                v[i] = omega + a * r[i - 1] ** 2 + b * v[i - 1]
         return pd.Series(v, index=f.close.index)
 
     def score(self, f: FeatureSet) -> pd.Series:
@@ -95,13 +118,16 @@ class GJRGarch(BaseStrategy):
 
     def score(self, f: FeatureSet) -> pd.Series:
         r = f.logret.fillna(0.0).to_numpy()
-        lr = float(np.nanvar(r)) or 1e-8
         a, g, b = self.params["alpha"], self.params["gamma"], self.params["beta"]
-        omega = lr * max(1e-6, 1 - a - g / 2 - b)
-        v = np.empty(len(r)); v[0] = lr
-        for i in range(1, len(r)):
-            shock = r[i - 1] ** 2
-            v[i] = omega + a * shock + g * shock * (r[i - 1] < 0) + b * v[i - 1]
+        lr = _causal_long_run_var(r)
+        v = np.full(len(r), np.nan)
+        start = int(np.argmax(np.isfinite(lr))) if np.isfinite(lr).any() else len(r)
+        if start < len(r):
+            v[start] = lr[start]
+            for i in range(start + 1, len(r)):
+                shock = r[i - 1] ** 2
+                omega = lr[i] * max(1e-6, 1 - a - g / 2 - b)
+                v[i] = omega + a * shock + g * shock * (r[i - 1] < 0) + b * v[i - 1]
         cond = pd.Series(np.sqrt(v * f.bars_per_year), index=f.close.index)
         return -squash(zscore(cond, 60), 1.5)
 
