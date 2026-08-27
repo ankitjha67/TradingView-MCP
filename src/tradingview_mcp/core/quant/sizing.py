@@ -37,7 +37,30 @@ MAX_CAPITAL = 1_000_000.0
 CAPITAL_TIERS = (1_000, 5_000, 10_000, 25_000, 50_000,
                  100_000, 250_000, 500_000, 1_000_000)
 
-DEFAULT_FX = {"INR": 1.0, "USD": 88.0, "EUR": 95.0, "GBP": 112.0}
+DEFAULT_FX = {"INR": 1.0, "USD": 88.0, "EUR": 95.0, "GBP": 112.0,
+              "JPY": 0.58, "HKD": 11.3, "AUD": 57.0, "CAD": 64.0,
+              "CHF": 101.0, "SGD": 66.0, "SEK": 8.4, "ZAR": 4.8,
+              # GBp is pence, the sub-unit London quotes equities in. It is a
+              # currency code in its own right precisely because 8,913 on an
+              # LSE chart means GBP 89.13, not GBP 8,913. Treating it as GBP
+              # overstates every London notional a hundredfold.
+              "GBp": 1.12, "ZAc": 0.048, "ILA": 0.0}
+
+# Exchange -> the currency that exchange quotes in. Everything not listed was
+# previously assumed USD, which is right for US venues and wrong for every
+# other one: an LSE price became dollars, a Tokyo price became dollars, and
+# the resulting notional was out by whatever the cross rate happened to be.
+_EXCHANGE_CURRENCY = {
+    "NSE": "INR", "BSE": "INR",
+    "LSE": "GBp", "LON": "GBp",          # London quotes in pence
+    "TSE": "JPY", "TYO": "JPY", "JPX": "JPY",
+    "HKEX": "HKD", "SEHK": "HKD",
+    "ASX": "AUD", "TSX": "CAD", "TSXV": "CAD",
+    "SIX": "CHF", "SGX": "SGD",
+    "FWB": "EUR", "XETR": "EUR", "EURONEXT": "EUR", "AMS": "EUR",
+    "BME": "EUR", "MIL": "EUR", "OMXSTO": "SEK", "JSE": "ZAc",
+    "NASDAQ": "USD", "NYSE": "USD", "AMEX": "USD", "OTC": "USD",
+}
 
 
 @dataclass
@@ -101,7 +124,9 @@ def resolve_instrument(symbol: str, spec: Optional[SymbolSpec] = None) -> Instru
             sym.startswith(("NIFTY", "BANK", "SENSEX")) else "USD",
             note="Cash index — not directly tradeable; size shown for reference only.")
 
-    quote = "INR" if spec.exchange in ("NSE", "BSE") else "USD"
+    # Default to USD only for genuinely unknown venues; a wrong currency here
+    # silently mis-sizes every position on that exchange.
+    quote = _EXCHANGE_CURRENCY.get(spec.exchange, "USD")
     return InstrumentSpec(
         asset_class="Equity", units_label="shares", lot_size=1.0, min_quantity=1.0,
         quantity_step=1.0, max_leverage=1.0, quote_currency=quote,
