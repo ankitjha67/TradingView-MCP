@@ -170,6 +170,63 @@ no Pine equivalent) are **not approximated**; they're listed with the reason.
 
 ---
 
+---
+
+## Agent desk (second opinion)
+
+The engine's rule is that an LLM explains what the models found and never originates a
+signal. **[TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)**
+is the opposite: a team of LLM agents — fundamentals, news, sentiment and technical
+analysts, then a bull/bear debate and a three-way risk review — argues its way to a
+BUY/SELL/HOLD.
+
+Both hold at once, because the desk is wired as a *second reader*, not a voter:
+
+| | |
+|---|---|
+| Sets direction | never — `compute_consensus` is untouched |
+| Changes the confidence score | never |
+| Sizes a position | never — sizing stays with the calibrated engine |
+| Disagrees with the models | adds a caution, which **halves** position size |
+| Agrees | says so, changes nothing |
+
+Measured on AAPL daily: consensus BUY +0.166, score 57.1, grade C in every case; size
+×0.325 with no desk, with an absent desk, and with an agreeing desk — and ×0.163 with a
+disagreeing one. Direction and score never moved.
+
+**Why include it at all.** Every run reports ~119 of 311 models standing down for
+*"missing data feed"* — options chains, fundamentals, on-chain, news, sentiment. Those are
+exactly the inputs TradingAgents has. It is not a better price model; it reads a different
+part of the problem, and the one thing it is trusted to do is make you take less when it
+sees something the price series cannot show.
+
+### It runs in its own virtualenv, deliberately
+
+`tradingagents` resolves **pandas 3.0.5**; this engine is 21 modules and 311 models on
+**pandas 2.3.3**, and `pyproject.toml` sets no upper bound — so a plain `pip install`
+silently upgrades pandas underneath the library. The install also pulls chainlit, redis,
+textual and ~40 opentelemetry instrumentation packages.
+
+So the desk lives in `.venv-agents/` and is reached over a subprocess with JSON on the
+wire. Each side keeps the dependency tree it wants; the cost is one process spawn per
+debate, which already takes minutes.
+
+```bash
+python tools/setup_agent_desk.py          # create the venv and install
+python tools/setup_agent_desk.py --check  # status, changes nothing
+```
+
+It reuses whatever LLM provider is configured in Settings — including NVIDIA NIM, which
+`tradingagents` does not name but reaches as an OpenAI-compatible endpoint.
+
+### Cadence and cost
+
+A debate is many model calls over several minutes, and this engine re-analyses at every
+bar close. So a verdict is **cached per (ticker, trading date)** and never started
+automatically — the Live Signal tab has a button. News and fundamentals do not change
+between two 1-minute bars, which is the resolution the debate actually reads at. Once run,
+every refresh that day reuses it, including the monitor.
+
 ## Credits
 
 This project builds on **[atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)**
@@ -182,6 +239,10 @@ Pine export and their verification — is added on top.
 
 Category coverage for macro, rates, commodity carry and options income follows the family
 layout of **[alphakit](https://github.com/ankitjha67/alphakit)**.
+
+The agent desk wraps **[TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)**
+by Tauric Research, run unmodified in its own environment and consulted as a second
+opinion.
 
 ## Licence
 

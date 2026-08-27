@@ -18,6 +18,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import date as _date
 from pathlib import Path
 
 import altair as alt
@@ -38,6 +39,10 @@ from tradingview_mcp.core.quant.features import BARS_PER_YEAR, build_features
 from tradingview_mcp.core.quant.sizing import (
     CAPITAL_TIERS, MAX_CAPITAL, MIN_CAPITAL, CapitalConfig, build_trade_plan,
     resolve_instrument,
+)
+from tradingview_mcp.core.quant.agents import (
+    availability as agents_availability, desk_params_from_llm_config,
+    run_desk as run_agent_desk,
 )
 from tradingview_mcp.core.quant.llm import (
     PROVIDERS, LLMConfig, analyze as llm_analyze, list_models,
@@ -375,6 +380,7 @@ class Pipeline:
     top_result: object = None
     performance: object = None
     commentary: dict = field(default_factory=dict)
+    agent: object = None            # TradingAgents desk verdict, if one is cached
     timings: dict = field(default_factory=dict)
     failures: dict = field(default_factory=dict)
     # Wall-clock at the moment this object finished computing. A fresh pass is
@@ -439,8 +445,21 @@ def run_pipeline(symbol: str, interval: str, exchange: str, ticker: str,
     voting = [(s, sg) for s, sg in signals if sg.available and abs(sg.score) >= 0.15]
 
     path = timed("stability", consensus_series, f, models) if stability else None
+
+    # The agent desk is read from cache only. A debate takes minutes, and this
+    # function runs on every bar close, so it is never started here — the
+    # Live Signal tab has a button for that. Once run, the day's verdict is
+    # reused by every later refresh.
+    agent_verdict = None
+    try:
+        from tradingview_mcp.core.quant.agents import load_cached
+        agent_verdict = load_cached(spec.ticker or symbol, _date.today().isoformat())
+    except Exception:
+        agent_verdict = None
+
     conf = stage("confidence", score_trade, con, f, voting,
-                 risk_reward=risk.risk_reward, score_path=path)
+                 risk_reward=risk.risk_reward, score_path=path,
+                 agent_verdict=agent_verdict)
     plan = timed("sizing", build_trade_plan, symbol, con, risk, conf, _cap_cfg) or {}
 
     # Only one thing here is worth putting on another thread. Measured on this
@@ -492,7 +511,8 @@ def run_pipeline(symbol: str, interval: str, exchange: str, ticker: str,
                     consensus=con, risk=risk, confidence=conf, plan=plan,
                     score_path=path, backtest=bt or {}, top_result=top_result,
                     performance=performance, commentary=commentary or {},
-                    timings=timings, failures=failures, computed_at=time.time())
+                    timings=timings, failures=failures, agent=agent_verdict,
+                    computed_at=time.time())
 
 
 # Cost assumptions are edited in the Backtest Lab tab but feed the shared
@@ -810,6 +830,62 @@ with tabs[0]:
 
     # Commentary was computed in the pipeline, concurrently with the backtest,
     # so it is already here — no second click and no second wait.
+    # ── agent desk ────────────────────────────────────────────────────────────
+    st.markdown("#### Agent desk — independent second opinion")
+    _desk = P.agent
+    _ok, _why = agents_availability()
+
+    if _desk is not None and _desk.available:
+        _agrees = _desk.agrees_with(con.direction)
+        _tone, _verb = ({True: ("var(--long)", "agrees with"),
+                         False: ("var(--short)", "disagrees with")}
+                        .get(_agrees, ("var(--flat)", "has no call against")))
+        d1, d2 = st.columns([1, 2])
+        d1.markdown(card("Desk verdict", _desk.direction,
+                         f"its own confidence {_desk.confidence:.0%}", _tone),
+                    unsafe_allow_html=True)
+        d2.markdown(
+            f'<div class="note">The desk <b>{_verb}</b> the models\' '
+            f'<b>{con.direction}</b>. Debated {_desk.as_of} · '
+            f'{_desk.elapsed_s:.0f}s · {"cached" if _desk.cached else "fresh"}.<br>'
+            f'It reads news, fundamentals and sentiment — the feeds '
+            f'{con.models_total - con.models_available} models stood down for. '
+            f'It never sets direction or size here: a disagreement halves the '
+            f'position, nothing more.</div>', unsafe_allow_html=True)
+        if _desk.rationale:
+            st.markdown(f"> {_desk.rationale}")
+        if _desk.warning:
+            st.warning(_desk.warning, icon="⚠")
+        if _desk.reports:
+            with st.expander(f"Read the desk's working — {len(_desk.reports)} sections"):
+                for _name, _text in _desk.reports.items():
+                    st.markdown(f"**{_name.replace('_', ' ').replace('.', ' · ')}**")
+                    st.markdown(_text[:4000])
+                    st.divider()
+    elif not _ok:
+        st.info(f"Agent desk not set up. {_why}", icon="🧩")
+    else:
+        st.caption("No debate run for this symbol today. A debate takes several "
+                   "minutes and many model calls, so it is never started "
+                   "automatically — once run, every refresh today reuses it.")
+
+    if _ok and st.button("Run a debate for today", key="run_desk",
+                         help="Fundamentals, news, sentiment and technical "
+                              "analysts, then a bull/bear debate and a risk "
+                              "review. Several minutes."):
+        with st.spinner(f"The desk is debating {spec.ticker or symbol}… "
+                        "this takes minutes, not seconds."):
+            _v = run_agent_desk(spec.ticker or symbol, refresh=True,
+                                **desk_params_from_llm_config())
+        if _v.available:
+            st.success(f"Desk returned **{_v.direction}** in {_v.elapsed_s:.0f}s.")
+            run_pipeline.clear()
+            st.rerun()
+        else:
+            st.error(_v.reason_unavailable or "the desk could not run")
+            if _v.error:
+                st.code(_v.error[:800], language="text")
+
     st.markdown("#### Commentary")
     res = P.commentary or {}
     if res.get("ok"):

@@ -261,3 +261,12 @@ pine_out/
 # belt-and-braces guard in case anyone relocates the config here.
 llm_config.json
 .tradingview_mcp/
+
+# TradingAgents desk runs in its own virtualenv — it needs pandas 3.x while the
+# quant engine needs 2.x, so the two are deliberately never installed together.
+# Rebuild with: python tools/setup_agent_desk.py
+.venv-agents/
+
+# TradingAgents writes its per-run logs here (results_dir). Regenerated output,
+# not source.
+results/

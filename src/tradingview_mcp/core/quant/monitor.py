@@ -252,6 +252,7 @@ class MonitorSnapshot:
     trade_plan: dict = field(default_factory=dict)
     freshness: dict = field(default_factory=dict)
     llm: dict = field(default_factory=dict)
+    agent: dict = field(default_factory=dict)
     generated_at: str = ""
     next_run_in_seconds: float = 0.0
     trigger: str = "scheduled"
@@ -261,6 +262,7 @@ class MonitorSnapshot:
                 "confidence": self.confidence, "trade_plan": self.trade_plan,
                 "freshness": self.freshness,
                 "risk": self.risk, "data": self.data_meta, "llm": self.llm,
+                "agent": self.agent,
                 "generated_at": self.generated_at,
                 "next_run_in_seconds": round(self.next_run_in_seconds, 1),
                 "trigger": self.trigger}
@@ -323,12 +325,23 @@ def analyze_once(symbol: str, interval: str, exchange: str = "",
     # Distance to target as a % of price, checked against round-trip costs.
     target_move_pct = (abs(risk.take_profit - risk.entry) / risk.entry * 100
                        if risk.entry else float("nan"))
+    # The agent desk, if a debate was run for this ticker today, is read from
+    # cache. Never started here: a debate takes minutes and this runs at every
+    # bar close. Its only effect is a caution when it contradicts the models.
+    agent_verdict = None
+    try:
+        from .agents import load_cached
+        agent_verdict = load_cached(symbol, datetime.now(timezone.utc).date().isoformat())
+    except Exception:
+        agent_verdict = None
+
     confidence = score_trade(consensus, f, voting,
                              risk_reward=risk.risk_reward, score_path=score_path,
                              target_move_pct=target_move_pct,
                              asset_class=md.symbol.asset_class,
                              calibration=calib,
-                             notional_quote=_provisional_notional(f, risk, cfg))
+                             notional_quote=_provisional_notional(f, risk, cfg),
+                             agent_verdict=agent_verdict)
     # Pass the fully-qualified symbol. Sizing re-parses it to determine asset class,
     # lot granularity and venue minimums — and a bare ticker loses the exchange, so
     # a crypto pair silently resolves as an equity with no minimum-order rule.
@@ -343,6 +356,7 @@ def analyze_once(symbol: str, interval: str, exchange: str = "",
         consensus=consensus.to_dict(), risk=risk.to_dict(),
         confidence=confidence.to_dict(), trade_plan=plan, freshness=fresh,
         data_meta=md.to_dict(),
+        agent=agent_verdict.to_dict() if agent_verdict is not None else {},
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         next_run_in_seconds=seconds_to_next_close(interval), trigger=trigger)
 
@@ -464,6 +478,25 @@ def render_markdown(snap: MonitorSnapshot) -> str:
         if cf.get("cautions"):
             lines += ["", "**Cautions — each halves position size:**", ""]
             lines += [f"- ⚠ {v}" for v in cf["cautions"]]
+
+    desk = snap.agent or {}
+    if desk.get("available"):
+        quant_dir = snap.consensus.get("direction", "NEUTRAL")
+        stance = ("agrees with" if desk["direction"] == quant_dir
+                  else "has no call against" if desk["direction"] == "NEUTRAL"
+                  else "disagrees with")
+        lines += ["", "## Agent desk (second opinion)", "",
+                  f"**{desk['direction']}** — its own confidence "
+                  f"`{desk.get('confidence', 0):.0%}`, debated {desk.get('as_of')} "
+                  f"in {desk.get('elapsed_s', 0):.0f}s.", "",
+                  f"The desk **{stance}** the models' **{quant_dir}**. It reads news, "
+                  "fundamentals and sentiment that the price models cannot. It never "
+                  "sets direction or size — a disagreement halves the position and "
+                  "nothing else."]
+        if desk.get("rationale"):
+            lines += ["", f"> {desk['rationale']}"]
+        if desk.get("warning"):
+            lines += ["", f"⚠ {desk['warning']}"]
 
     lines += ["", "## Risk levels (ATR-derived)", "",
               "| Entry | Stop | Target | R:R | ATR |", "|---|---|---|---|---|",

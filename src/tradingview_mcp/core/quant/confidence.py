@@ -454,6 +454,7 @@ def score_trade(
     asset_class: str = "equity",
     cost_pct: Optional[float] = None,
     notional_quote: float = 0.0,
+    agent_verdict: Optional[object] = None,
 ) -> ConfidenceReport:
     """
     Score one prospective trade 0..100.
@@ -501,6 +502,17 @@ def score_trade(
     liq_vetoes, liq_cautions = _liquidity_check(f, direction, notional_quote, asset_class)
     vetoes.extend(liq_vetoes)
     cautions.extend(liq_cautions)
+
+    # The TradingAgents desk, when one has been run, is a second reader working
+    # from news, fundamentals and sentiment the price models cannot see. It is
+    # allowed exactly one effect: a caution when it contradicts the models,
+    # which halves size. It cannot set direction, raise the score, or veto —
+    # see the note at the top of agents.py for why that asymmetry is deliberate.
+    if agent_verdict is not None:
+        from .agents import concordance_caution
+        agent_note = concordance_caution(agent_verdict, direction)
+        if agent_note:
+            cautions.append(agent_note)
 
     # A veto caps the score rather than zeroing it, so the breakdown stays readable.
     score = min(raw_score, 35.0) if vetoes else raw_score
