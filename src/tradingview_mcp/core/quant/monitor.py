@@ -794,8 +794,11 @@ def run_monitor(cfg: Optional[MonitorConfig] = None,
                  f"@ {probe.interval}")
         else:
             _log("Following the active TradingView chart — none detected yet.")
-            _log("  The TradingView desktop app exposes port 9222 automatically.")
-            _log("  For Chrome, start it with --remote-debugging-port=9222.")
+            _log("  Chart detection needs a Chrome DevTools endpoint on port 9222.")
+            _log("  Browser: close Chrome fully, then relaunch it with")
+            _log("    chrome.exe --remote-debugging-port=9222")
+            _log("  Desktop app: recent builds expose no TCP port at all, so the")
+            _log("    app alone is not enough — use the browser, or pass --symbol.")
 
     while max_cycles is None or cycles < max_cycles:
         try:

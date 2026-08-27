@@ -173,9 +173,17 @@ to, re-analysing at every bar close on that interval.
 
 ### If you use the TradingView desktop app
 
-**It already works — nothing to set up.** The desktop app exposes the debug port by default.
-Just open a chart, then flip **Follow my TradingView chart** in the dashboard sidebar (or
-run the monitor with no `--symbol`).
+**Check before relying on it.** Older builds exposed a debug port; recent ones do not — a
+desktop install verified in August 2026 was listening on no TCP port at all, so chart
+detection could not work no matter how many charts were open. Test it:
+
+```bash
+curl http://127.0.0.1:9222/json/version
+```
+
+Anything back, you are set — open a chart and flip **Follow my TradingView chart** in the
+sidebar. Nothing back, use the browser route below, or run the monitor with an explicit
+`--symbol NSE:ICICIBANK --interval 1d`, which needs no browser at all.
 
 ### If you use TradingView in a web browser
 
