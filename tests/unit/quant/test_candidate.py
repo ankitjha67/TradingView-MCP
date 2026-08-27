@@ -88,7 +88,40 @@ class _OutOfRange(BaseStrategy):
 
 
 def test_a_sound_model_is_admitted(frame):
-    assert admit(_Good(), frame).admitted
+    """
+    Soundness is judged in isolation, so the comparison pool is empty here.
+    Against the real library this same model is correctly rejected — a 20-bar
+    momentum rule is a duplicate of several things already present, which is
+    what test_a_duplicate_is_rejected covers.
+    """
+    assert admit(_Good(), frame, against=[]).admitted
+
+
+def test_a_duplicate_is_rejected(frame):
+    """
+    The check the other five cannot make. A duplicate is causal, in-contract,
+    non-degenerate and well behaved — it is simply the same signal already
+    present, and admitting it doubles that family's weight.
+    """
+    from tradingview_mcp.core.quant.candidate import check_novel
+
+    class _Twin(_Good):
+        name = "Twin"
+
+    r = check_novel(_Twin(), frame, against=[_Good()])
+    assert not r.passed and r.fatal
+    assert "same signal" in r.detail
+
+
+def test_a_distinctive_model_passes_novelty(frame):
+    from tradingview_mcp.core.quant.candidate import check_novel
+
+    class _Other(_Good):
+        name = "Other"
+        def score(self, f):
+            return (f.rsi(14) / 100 - 0.5).clip(-1, 1).fillna(0.0) * 2
+
+    assert check_novel(_Other(), frame, against=[_Good()]).passed
 
 
 def test_full_sample_normalisation_is_caught(frame):

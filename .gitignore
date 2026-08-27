@@ -270,3 +270,7 @@ llm_config.json
 # TradingAgents writes its per-run logs here (results_dir). Regenerated output,
 # not source.
 results/
+
+# Machine-drafted candidates. Evidence, not source — never imported by the
+# engine, and not promoted without reading the paper first.
+drafts/

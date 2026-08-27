@@ -42,6 +42,19 @@ substitute.
 **Evidence.** It backtests without error, and its t-statistic is reported
 rather than assumed. Failing to clear significance is not a rejection — almost
 nothing does on a short window — but the number travels with the verdict.
+
+**Novelty.** It is not a rename of something already here. The first five
+checks all ask whether a model is sound in isolation, and a duplicate passes
+every one of them: it is causal, in-contract and perfectly well behaved. It is
+simply the same signal under another citation. Consensus weights by family
+precisely so that correlated models cannot each cast a full vote, and admitting
+a duplicate under a new family defeats that.
+
+This was not hypothetical. A batch drafted from papers produced two models
+correlating 1.000 with each other — one cited a Kelly-criterion paper and the
+other a betting-patterns paper — and another pair at 1.000 between a
+cryptocurrency paper and a European real-estate one. All four passed the other
+five checks.
 """
 from __future__ import annotations
 
@@ -69,6 +82,11 @@ def _causal_edge(strategy) -> int:
     """How many bars before the cut to ignore, given the model's lookback."""
     return max(CAUSAL_EDGE, int(getattr(strategy, "min_bars", 0) or 0) // 4)
 CAUSAL_TOLERANCE = 1e-6
+
+# Above this correlation with an existing model, a candidate is a rename rather
+# than an addition. Deliberately strict: family weighting already handles models
+# that are merely related, and what this catches is near-identity.
+NOVELTY_MAX_CORR = 0.95
 
 
 @dataclass
@@ -288,7 +306,58 @@ def check_evidence(strategy: BaseStrategy, f: FeatureSet) -> CheckResult:
                        f"t = {t:.2f} over {bt.years_tested:.2f} years — {verdict}")
 
 
-def admit(strategy: BaseStrategy, f: FeatureSet) -> Admission:
+def check_novel(strategy: BaseStrategy, f: FeatureSet,
+                against: Optional[list] = None) -> CheckResult:
+    """
+    Is this a new signal, or one already in the library under another name?
+
+    Compares the signal path against every runnable model. A duplicate is
+    invisible to the other checks — it is causal, in-contract and well behaved
+    — and it quietly doubles the weight of whatever it duplicates.
+    """
+    mine = _score_of(strategy, f)
+    if mine is None:
+        return CheckResult("novelty", True, "no score to compare", fatal=False)
+
+    if against is None:
+        from .registry import get_registry
+        against = [m for m in get_registry().all()
+                   if m.name != getattr(strategy, "name", None)]
+
+    worst_name, worst = "", 0.0
+    for other in against:
+        if getattr(other, "name", None) == getattr(strategy, "name", None):
+            continue
+        try:
+            if not other.availability(f)[0]:
+                continue
+            theirs = other.score_series(f)
+        except Exception:
+            continue
+        joined = pd.concat([mine, theirs], axis=1).dropna()
+        if len(joined) < 60:
+            continue
+        a, b = joined.iloc[:, 0], joined.iloc[:, 1]
+        if a.std(ddof=0) < 1e-12 or b.std(ddof=0) < 1e-12:
+            continue
+        c = abs(float(a.corr(b)))
+        if math.isfinite(c) and c > worst:
+            worst_name, worst = getattr(other, "name", "?"), c
+
+    if worst >= NOVELTY_MAX_CORR:
+        return CheckResult(
+            "novelty", False,
+            f"correlates {worst:.3f} with {worst_name!r} — the same signal under "
+            f"a different citation, which would double that family's weight")
+    if not worst_name:
+        return CheckResult("novelty", True, "nothing comparable to measure against",
+                           fatal=False)
+    return CheckResult("novelty", True,
+                       f"closest existing model is {worst_name!r} at {worst:.2f}")
+
+
+def admit(strategy: BaseStrategy, f: FeatureSet,
+          against: Optional[list] = None) -> Admission:
     """Run every admission check against one candidate."""
     a = Admission(strategy=getattr(strategy, "name", type(strategy).__name__))
     a.checks = [
@@ -297,6 +366,7 @@ def admit(strategy: BaseStrategy, f: FeatureSet) -> Admission:
         check_non_degenerate(strategy, f),
         check_declares_needs(strategy, f),
         check_evidence(strategy, f),
+        check_novel(strategy, f, against),
     ]
     from .backtest import run_backtest
     try:
