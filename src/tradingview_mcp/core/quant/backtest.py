@@ -281,11 +281,44 @@ def run_backtest(
 
 def _extract_trades(position: pd.Series, f: FeatureSet, net: pd.Series,
                     cost_rate: float) -> list[Trade]:
-    """Reconstruct discrete trades from the continuous position path."""
+    """
+    Reconstruct discrete trades from the continuous position path.
+
+    Each trade's return is taken from the ``net`` series over the bars it was
+    open — the same series the equity curve compounds — so the trade list and
+    the headline return describe one simulation rather than two.
+
+    This previously priced every trade as ``(exit/entry - 1) * sign(position)``,
+    using only the *sign* and discarding the size. Positions are scaled by
+    conviction by default, so a model holding 0.3 units had its P&L booked at
+    full size. On SOL-USD daily that reported net profit of -53.6% for a
+    strategy whose equity curve had in fact grown +93.1%: gross profit and
+    gross loss were each overstated roughly threefold, and the residual came
+    out with the wrong sign. Profit factor, average trade, largest win and
+    largest loss were all computed from those inflated figures.
+    """
     pos = position.to_numpy()
     px = f.close.to_numpy()
+    ret = net.to_numpy()
     idx = f.close.index
     trades: list[Trade] = []
+
+    def _close(side: int, start: int, end: int, reason: str) -> None:
+        """Book the span [start, end) as one trade, sized as it was held."""
+        span = ret[start:end]
+        realised = float(np.prod(1.0 + span) - 1.0) if len(span) else 0.0
+        held = np.abs(pos[start:end])
+        avg_size = float(held.mean()) if len(held) else 0.0
+        entry, exit_ = px[start], px[min(end, len(px) - 1)]
+        # Gross is the price move at the size actually carried; the difference
+        # against `realised` is the cost the simulation charged.
+        gross = (exit_ / entry - 1.0) * side * avg_size
+        trades.append(Trade(
+            entry_time=idx[start], exit_time=idx[min(end, len(idx) - 1)],
+            direction="LONG" if side > 0 else "SHORT",
+            entry_price=float(entry), exit_price=float(exit_),
+            gross_return=float(gross), net_return=realised,
+            bars_held=end - start, exit_reason=reason))
 
     side = 0  # -1 short, 0 flat, +1 long
     start = 0
@@ -293,27 +326,12 @@ def _extract_trades(position: pd.Series, f: FeatureSet, net: pd.Series,
         cur = int(np.sign(pos[i]))
         if cur != side:
             if side != 0 and i > start:
-                entry, exit_ = px[start], px[i]
-                gross = (exit_ / entry - 1.0) * side
-                trades.append(Trade(
-                    entry_time=idx[start], exit_time=idx[i],
-                    direction="LONG" if side > 0 else "SHORT",
-                    entry_price=float(entry), exit_price=float(exit_),
-                    gross_return=float(gross),
-                    net_return=float(gross - 2 * cost_rate),
-                    bars_held=i - start,
-                    exit_reason="signal flip" if cur != 0 else "signal exit"))
+                _close(side, start, i,
+                       "signal flip" if cur != 0 else "signal exit")
             side, start = cur, i
 
     if side != 0 and start < len(pos) - 1:
-        entry, exit_ = px[start], px[-1]
-        gross = (exit_ / entry - 1.0) * side
-        trades.append(Trade(
-            entry_time=idx[start], exit_time=idx[-1],
-            direction="LONG" if side > 0 else "SHORT",
-            entry_price=float(entry), exit_price=float(exit_),
-            gross_return=float(gross), net_return=float(gross - 2 * cost_rate),
-            bars_held=len(pos) - 1 - start, exit_reason="open at end"))
+        _close(side, start, len(pos), "open at end")
     return trades
 
 
