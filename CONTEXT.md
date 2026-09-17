@@ -32,7 +32,7 @@ TradingViewAntigravity/
     │   ├── performance.py    # TradingView-style Strategy Tester report
     │   ├── monitor.py        # Bar-close-aligned live loop, CDP chart detection
     │   ├── llm.py            # Provider-agnostic LLM layer (stdlib only)
-    │   └── library/          # 311 models in 16 modules, one per category
+    │   └── library/          # 358 models in 15 modules — one per category, plus replications.py
     └── services/             # Pre-existing MCP services (news, options, screener…)
 ```
 
@@ -51,7 +51,7 @@ One call yields both:
 - the **live signal** (last element), and
 - the **complete historical signal path** the backtester needs.
 
-That single decision is why 311 models scan in ~1s and backtest in ~2.5s. The previous
+That single decision is why 358 models scan in ~1s and backtest in ~2.5s. The previous
 design called `evaluate(df) -> str` inside a per-bar loop with a growing DataFrame slice:
 O(n²) per model, minutes per comparison.
 
@@ -128,9 +128,9 @@ parse_symbol() ──► SymbolSpec {yahoo, binance, stooq, asset_class}
 fetch_ohlcv()  ──► Binance → Yahoo → Stooq (first success wins; stale cache on total failure)
         │
         ▼
-build_features() ─► FeatureSet   ← computed ONCE, shared by all 311 models
+build_features() ─► FeatureSet   ← computed ONCE, shared by all 358 models
         │
-        ├──► strategy.score(f) × 311  (vectorised, cached indicators)
+        ├──► strategy.score(f) × 358  (vectorised, cached indicators)
         │
         ├──► compute_consensus()  ─► family/category/regime/proxy weighting
         ├──► compute_risk_levels() ─► ATR-scaled entry/stop/target
@@ -214,7 +214,7 @@ A chart change re-runs immediately. `--every N` forces a fixed cadence.
 
 | Was | Problem | Now |
 |---|---|---|
-| 200 classes, 30 real | 170 were template clones with 2 distinct behaviours; consensus counted 85 identical clones as 85 opinions | 311 models, 186 families, family-weighted voting |
+| 200 classes, 30 real | 170 were template clones with 2 distinct behaviours; consensus counted 85 identical clones as 85 opinions | 358 models, 233 families, family-weighted voting |
 | `evaluate(df) -> str` in a per-bar loop | O(n²); full comparison took minutes and ran on a 60 s timer | Vectorised `score(f) -> Series`; ~1 s scan, ~2.5 s full backtest |
 | `StrategyFactory` missing 3 methods | `app.py` crashed on line 120 every run | `StrategyRegistry` with full query API |
 | `src.tradingview_mcp` vs `tradingview_mcp` | Whole package tree loaded twice | Single canonical path, enforced at import |
@@ -262,7 +262,7 @@ price-only models. `tools/emit_pine.py` writes one script per signalling model p
 a family-weighted consensus; `tools/verify_pine.py` proves they match.
 
 **The rule.** A translation is registered only when the Pine computes the same
-quantity as the Python. Nothing is approximated silently — 119 feed-dependent and
+quantity as the Python. Nothing is approximated silently — 142 feed-dependent and
 9 ML models are reported as untranslatable with the reason.
 
 **Verification is independent by construction.** `tools/pine_sim.py` re-implements

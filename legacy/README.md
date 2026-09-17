@@ -12,7 +12,7 @@ the running system. Delete the folder whenever you are satisfied with the replac
 | `run.py` | Launcher that hard-required `uv` and started the two files above. | `start.py` |
 | `tv_monitor_daemon.py` | Polled every 60 s regardless of chart interval, then mapped every intraday interval to `1h` — a 1-minute chart was analysed on hourly bars. Called an O(n²) comparison on that timer. | `core/quant/monitor.py` (bar-close aligned) |
 | `generate_all_strategies.py` | Generated the 170 clone strategies below. Running it would recreate them. | `core/quant/library/` — hand-written, cited models |
-| `clone_strategies/` | 170 classes generated from one template. Every one ran identical code; only two distinct behaviours existed across all of them, selected by whether the class index was odd or even. Consensus counted them as 170 independent opinions. | `core/quant/library/` — 311 models across 186 genuinely independent families |
+| `clone_strategies/` | 170 classes generated from one template. Every one ran identical code; only two distinct behaviours existed across all of them, selected by whether the class index was odd or even. Consensus counted them as 170 independent opinions. | `core/quant/library/` — 358 models across 233 genuinely independent families |
 
 ## The clone problem, concretely
 

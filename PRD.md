@@ -10,7 +10,7 @@
 ## 1. What this is
 
 A local, self-hosted engine that reads whatever chart you have open in TradingView, fetches
-that instrument's price history from free public sources, evaluates **311 published
+that instrument's price history from free public sources, evaluates **358 published
 quantitative models** against it, and produces one auditable consensus view with
 volatility-scaled risk levels.
 
@@ -45,16 +45,16 @@ Stating this plainly, because the category is full of products that blur it:
 
 | Requirement | Status |
 |---|---|
-| 200+ distinct published models | **311** across 16 categories |
+| 200+ distinct published models | **358** across 16 categories |
 | Every model carries a verifiable citation | Yes — author, year, journal in `research` |
-| Models are genuinely distinct, not parameter clones | **186 independent families** tracked and enforced |
-| Full library evaluates in under 2 seconds | **~1.0–2.4s** for all 311 |
+| Models are genuinely distinct, not parameter clones | **233 independent families** tracked and enforced |
+| Full library evaluates in under 2 seconds | **~1.0–2.4s** for all 358 |
 | Adding a model requires no wiring | Yes — drop a class in `core/quant/library/`, auto-discovered |
 
 **Design requirement that drives everything else:** a model that cannot run honestly on the
 available data must report as unavailable rather than degrade to a price proxy and vote
-anyway. 119 of 311 models require an external feed; on plain OHLCV roughly 190 are available
-and the rest stand down. The UI always shows "N voting of M available of 311 in library".
+anyway. 142 of 358 models require an external feed; on plain OHLCV roughly 216 are available
+and the rest stand down. The UI always shows "N voting of M available of 358 in library".
 
 ### 4.2 Data — **met**
 
@@ -80,7 +80,7 @@ not run.
 
 ### 4.4 Confidence engine — **met**
 
-Every prospective trade is scored 0–100 from all 311 model inputs, across eight weighted
+Every prospective trade is scored 0–100 from all 358 model inputs, across eight weighted
 components:
 
 | Component | Weight | Question |
@@ -145,7 +145,7 @@ threshold at which an instrument becomes tradeable is explicit.
 
 ### 4.6 Backtesting — **met**
 
-- Vectorised: all 311 models over 1,000 bars in **~2.5 s**.
+- Vectorised: all 358 models over 1,000 bars in **~5 s**, half of it one k-NN analogue model.
 - **Signals act on the next bar**, never the signalling bar.
 - Commission and slippage charged on both legs, configurable.
 - Metrics: return, annualised return, Sharpe, Sortino, Calmar, max drawdown, win rate,
@@ -196,9 +196,9 @@ settings, then launches the dashboard. No IDE found means the dashboard, which n
 | Requirement | Target | Actual |
 |---|---|---|
 | Full-library scan | < 2 s | 1.0–2.4 s |
-| Full-library backtest | < 10 s | ~2.5 s |
+| Full-library backtest | < 10 s | ~5 s |
 | Cold start to dashboard | < 60 s | ~25 s |
-| Runtime errors across 311 models | 0 | 0 |
+| Runtime errors across 358 models | 0 | 0 |
 | Duplicate model names | 0 | 0 |
 | External paid dependencies | 0 | 0 |
 
@@ -233,7 +233,7 @@ These are the properties that separate a real engine from a plausible-looking on
 
 ## 8. Known limitations
 
-1. **119 of 311 models need a feed that is not connected.** They are implemented and will
+1. **142 of 358 models need a feed that is not connected.** They are implemented and will
    activate when the feed is supplied; today they stand down. This is disclosed everywhere.
 2. **22 models are proxies.** Each states what was substituted; each is down-weighted.
 3. **Free data has limits.** Yahoo serves 1-minute bars for roughly 7 days; Binance returns

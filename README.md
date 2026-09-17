@@ -3,7 +3,7 @@
 **A systematic multi-strategy analysis engine that follows your TradingView chart.**
 
 Reads whatever chart you have open, fetches that instrument's history from free public
-sources, evaluates **311 published quantitative models** against it, and produces one
+sources, evaluates **358 published quantitative models** against it, and produces one
 auditable verdict with a confidence score and a concrete position size.
 
 Runs entirely on your machine. No TradingView subscription, no market-data vendor, no paid
@@ -19,11 +19,11 @@ python start.py
 
 | | |
 |---|---|
-| **311 models** across 16 categories, every one with a paper citation | ~1s full scan |
-| **186 independent families** — the honest unit of diversification | family-weighted consensus |
+| **358 models** across 16 categories, every one with a paper citation | ~1s full scan |
+| **233 independent families** — the honest unit of diversification | family-weighted consensus |
 | **Confidence engine** — 8 components, hard vetoes, empirical calibration | 0–100 score |
 | **Position sizing** — capital 1,000 → 1,000,000, risk-first | refuses rather than guesses |
-| **Vectorised backtest** with walk-forward validation | 311 models in ~2.5s |
+| **Vectorised backtest** with walk-forward validation | 358 models in ~2.5s |
 | **Pine Script v6 export** for all 174 price-only models | numerically verified |
 | **Any LLM provider** via one saved key | 14 providers, zero dependencies |
 
@@ -32,9 +32,9 @@ python start.py
 **A model that cannot run honestly reports unavailable rather than degrading to a price
 proxy and voting anyway.**
 
-119 of the 311 models need an options chain, fundamentals, a peer universe, order-book
+142 of the 358 models need an options chain, fundamentals, a peer universe, order-book
 depth, on-chain or news data. Without that feed they stand down. Every screen shows
-*"N voting of M available of 311 in library"* — never "311 models agree".
+*"N voting of M available of 358 in library"* — never "358 models agree".
 
 22 models approximate their published method from substituted data. Each is labelled a
 **proxy**, states exactly what was substituted, and counts for 40% of a vote.
@@ -163,7 +163,7 @@ no Pine equivalent) are **not approximated**; they're listed with the reason.
 | File | Contents |
 |---|---|
 | [EASY_SETUP_GUIDE.md](EASY_SETUP_GUIDE.md) | Non-technical install, start to finish |
-| [STRATEGY_CATALOG.md](STRATEGY_CATALOG.md) | All 311 models, citations, data requirements |
+| [STRATEGY_CATALOG.md](STRATEGY_CATALOG.md) | All 358 models, citations, data requirements |
 | [PRD.md](PRD.md) | Requirements and honest status |
 | [CONTEXT.md](CONTEXT.md) | Architecture — read before changing `core/quant/` |
 | [walkthrough.md](walkthrough.md) | What was rebuilt and why |
@@ -194,7 +194,7 @@ Measured on AAPL daily: consensus BUY +0.166, score 57.1, grade C in every case;
 ×0.325 with no desk, with an absent desk, and with an agreeing desk — and ×0.163 with a
 disagreeing one. Direction and score never moved.
 
-**Why include it at all.** Every run reports ~119 of 311 models standing down for
+**Why include it at all.** Every run reports ~142 of 358 models standing down for
 *"missing data feed"* — options chains, fundamentals, on-chain, news, sentiment. Those are
 exactly the inputs TradingAgents has. It is not a better price model; it reads a different
 part of the problem, and the one thing it is trusted to do is make you take less when it
@@ -202,7 +202,7 @@ sees something the price series cannot show.
 
 ### It runs in its own virtualenv, deliberately
 
-`tradingagents` resolves **pandas 3.0.5**; this engine is 21 modules and 311 models on
+`tradingagents` resolves **pandas 3.0.5**; this engine is 21 modules and 358 models on
 **pandas 2.3.3**, and `pyproject.toml` sets no upper bound — so a plain `pip install`
 silently upgrades pandas underneath the library. The install also pulls chainlit, redis,
 textual and ~40 opentelemetry instrumentation packages.

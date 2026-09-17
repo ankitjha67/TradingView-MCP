@@ -111,7 +111,7 @@ Dependencies
  ✓ All required packages present.
 
 Strategy engine
- ✓ 311 models across 16 categories (186 independent families)
+ ✓ 358 models across 16 categories (233 independent families)
 
 Editor integration
  ✓ Found: VS Code
@@ -149,7 +149,7 @@ Type a symbol in the left sidebar and pick an interval.
 
 | Tab | What it does |
 |---|---|
-| **Live Signal** | The main view. All 311 models run and the result is one LONG / SHORT / NO POSITION verdict with entry, stop and target. |
+| **Live Signal** | The main view. All 358 models run and the result is one LONG / SHORT / NO POSITION verdict with entry, stop and target. |
 | **Strategy Explorer** | Browse every model, read what it does and which paper it comes from, run any single one. |
 | **Backtest Lab** | Test all models on past data. Includes a walk-forward check that tells you whether a result is real or overfitted. |
 | **Monitor** | Run one analysis cycle and download the report. |
@@ -160,7 +160,7 @@ Type a symbol in the left sidebar and pick an interval.
 - **Score** −1 to +1. Negative = short, positive = long, near zero = no view.
 - **Confidence** how much weight to put on it. Below ~40% means the models disagree.
 - **Agreement** the share of models on the winning side. Below 60% means genuinely split.
-- **"126 voting of 192 available of 311 in library"** — this is deliberate. Models that
+- **"126 voting of 192 available of 358 in library"** — this is deliberate. Models that
   need data you have not connected (options chains, company fundamentals, blockchain data)
   **do not vote** rather than guessing. You are always told how many actually ran.
 
@@ -357,7 +357,7 @@ This tool analyses markets. It does not predict them.
 
 - **It is not investment advice.** It is model output for research.
 - **Most models fail most of the time.** The Backtest Lab will show you this directly —
-  typically only a handful of the 311 beat simply buying and holding. That is the honest
+  typically only a handful of the 358 beat simply buying and holding. That is the honest
   result, and it is displayed rather than hidden.
 - **A backtest is not a forecast.** Always run the walk-forward check. If it says
   *"inconsistent — likely overfit"*, believe it.
@@ -371,6 +371,6 @@ This tool analyses markets. It does not predict them.
 
 | File | Contents |
 |---|---|
-| `STRATEGY_CATALOG.md` | All 311 models with citations and data requirements |
+| `STRATEGY_CATALOG.md` | All 358 models with citations and data requirements |
 | `PRD.md` | What is built, what is not, and what is coming |
 | `CONTEXT.md` | Architecture — read before changing code |
