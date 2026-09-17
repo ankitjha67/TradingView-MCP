@@ -67,6 +67,10 @@ package = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Tests exercise the tree they live in. Without this, `import tradingview_mcp`
+# resolves to whatever copy is pip-installed — which was once a zip snapshot of
+# this repo, so the suite passed against code that was not being edited.
+pythonpath = ["src"]
 # Default runs stay hermetic — the real-network stress suite only runs when
 # explicitly selected: `pytest -m stress tests/stress`.
 addopts = '-m "not stress and not network"'
